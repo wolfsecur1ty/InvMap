@@ -1,0 +1,639 @@
+:root {
+    --sniff-bg-dark: #111115;
+    --sniff-bg-widget: #1a1a1f;
+    --sniff-border-color: #2a2a30;
+    --sniff-text-primary: #f0f0f5;
+    --sniff-accent: #f95738;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background-color: var(--sniff-bg-dark);
+    color: var(--sniff-text-primary);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.main-header {
+    padding: 10px 25px;
+    background-color: var(--sniff-bg-widget);
+    border-bottom: 1px solid var(--sniff-border-color);
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-logo {
+    height: 40px;
+    width: auto;
+}
+
+.header-brand h1 {
+    font-size: 1.5rem;
+    margin: 0;
+}
+
+.header-info {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.github-link {
+    color: var(--sniff-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s ease;
+}
+
+.github-link:hover {
+    color: var(--sniff-text-primary);
+}
+
+.github-link i {
+    margin-right: 6px;
+}
+
+.version-info {
+    font-size: 0.8rem;
+    color: var(--sniff-text-secondary);
+    opacity: 0.7;
+}
+
+/* Container principal do mapa */
+#svg-container {
+    flex-grow: 1;
+    background-color: #1a1a1f;
+    cursor: grab;
+    position: relative;
+}
+
+.grid-pattern-path {
+    stroke: rgba(255, 255, 255, 0.07);
+    stroke-width: 1px;
+}
+
+/* Container flutuante */
+#controls-container {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 5;
+    background-color: rgba(41, 41, 48, 0.1);
+    padding: 8px;
+    border-radius: 25px;
+    border: 1px solid var(--sniff-border-color);
+    backdrop-filter: blur(1px);
+}
+
+#controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Botões de ícone */
+#controls button,
+#controls label {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background-color: transparent;
+    color: var(--sniff-text-secondary);
+    border-radius: 50%;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#controls button:hover,
+#controls label:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--sniff-text-primary);
+}
+
+.btn-primary { /* Botão de Salvar */
+    background-color: var(--sniff-accent);
+    color: white;
+}
+.btn-primary:hover {
+    background-color: #e84627;
+    color: white;
+}
+
+.separator { /* Linha separadora */
+    width: 1px;
+    height: 20px;
+    background-color: var(--sniff-border-color);
+    margin: 0 4px;
+}
+
+#svg-container:active { cursor: grabbing; }
+
+/* =================================================== */
+/* ||      ESTILOS PARA OS ELEMENTOS DO MAPA        || */
+/* =================================================== */
+
+/* Estilo para o grupo do nó (retângulo + texto) */
+.node-group {
+    cursor: pointer;
+}
+
+/* Estilo para o corpo do nó (o retângulo) */
+.node-rect {
+    fill: #25252c;
+    stroke: #2a2a30;
+    stroke-width: 2px;
+    rx: 8px; /* Cantos arredondados */
+}
+.node-group:hover .node-rect {
+    stroke: var(--sniff-accent);
+}
+
+/* Estilo para o texto do nó */
+.node-label {
+    fill: var(--sniff-text-primary); /* Cor do texto */
+    font-size: 14px;
+    text-anchor: middle; /* Centraliza o texto horizontalmente */
+    dominant-baseline: middle; /* Centraliza o texto verticalmente */
+    pointer-events: none; /* Faz o texto não interferir no clique do mouse */
+}
+
+/* Estilo para a seta */
+.arrowhead-path {
+    fill: #4a4a52; /* Mesma cor da linha */
+}
+
+/* Estilo para a linha de conexão (edge) */
+.edge-path {
+    stroke: #4a4a52;
+    stroke-width: 2px;
+    fill: none;
+    marker-end: url(#arrowhead); /* Aplica a seta */
+}
+
+/* Estilo para o nó selecionado */
+.node-group.selected .node-rect {
+    stroke: var(--sniff-accent);
+    stroke-width: 3px;
+}
+
+/* Estilos para os elementos HTML dentro do nó SVG */
+.node-foreign-object {
+    /* Garante que o texto possa ser selecionado */
+    pointer-events: none;
+}
+
+.node-html-content {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    color: var(--sniff-text-primary);
+    text-align: center;
+    white-space: pre-wrap;
+    word-break: break-word;
+    height: 100%;
+    display: grid;
+    place-items: center;
+}
+
+.node-editor-textarea {
+    width: 100%;
+    background-color: transparent;
+    border: none;
+    color: var(--sniff-text-primary);
+    text-align: center;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    overflow: hidden;
+    white-space: pre; 
+}
+.node-editor-textarea:focus {
+    outline: none;
+}
+
+#add-controls-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 20;
+    pointer-events: none;
+
+    /* Estado inicial: invisível */
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+#add-controls-container.visible {
+    opacity: 1;
+    pointer-events: all; /* Ativa a interação quando visível */
+}
+
+.add-node-context-btn {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background-color: rgba(41, 41, 48, 0.4);
+    backdrop-filter: blur(1px);
+    color: white;
+    border: 1.5px solid var(--sniff-bg-dark);
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+    cursor: pointer;
+
+    /* Transição suave para todas as propriedades */
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.add-node-context-btn:hover {
+    background-color: var(--sniff-accent);
+    transform-origin: center;
+}
+
+/* Estilos para os nós de imagem */
+.node-image-container {
+    width: 100%;
+    height: 100%;
+    border-radius: 6px;
+    overflow: hidden; /* Corta as pontas da imagem */
+    position: relative; /* Contexto para a legenda */
+}
+
+/* A imagem em si */
+.node-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* A legenda da imagem */
+.image-node-label {
+    position: absolute;
+    bottom: 5px;
+    left: 5px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: inherit;
+    max-width: 90%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Adiciona "..." se o nome for muito longo */
+}
+
+.view-image-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* Legenda e botão ficam escondidos por padrão */
+.image-node-label,
+.view-image-btn {
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+/* Mostra a legenda e o botão no hover ou quando selecionado */
+.node-group:hover .image-node-label,
+.node-group.selected .image-node-label,
+.node-group:hover .view-image-btn,
+.node-group.selected .view-image-btn {
+    opacity: 1;
+}
+
+.view-image-btn:hover {
+    background-color: var(--sniff-accent);
+    transform: scale(1.1);
+}
+
+/* Nó de entidade */
+.entity-node-container {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    height: 100%;
+    gap: 12px;
+    padding: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* Garante a fonte correta */
+}
+.entity-photo {
+    width: 60px;
+    height: 60px;
+    background-color: var(--sniff-bg-dark);
+    border: 1px dashed var(--sniff-border-color);
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--sniff-text-secondary);
+    overflow: hidden;
+    font-size: 24px;
+}
+.entity-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.entity-info {
+    flex-grow: 1;
+    text-align: left;
+}
+.entity-info-header {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 8px;
+    align-items: center;
+}
+.entity-name, .entity-age {
+    background: #1a1a1f;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--sniff-border-color);
+    color: var(--sniff-text-primary);
+    min-height: 26px;
+}
+.entity-name {
+    flex-grow: 1;
+}
+.entity-age {
+    font-size: 13px;
+}
+.entity-details-box {
+    background: #1a1a1f;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--sniff-border-color);
+    font-size: 12px;
+    color: var(--sniff-text-secondary);
+    min-height: 40px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+#details-measurer {
+    visibility: hidden;
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+    box-sizing: border-box;
+    padding: 8px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    width: 228px; /* Mudar */
+}
+
+.entity-field {
+    margin-bottom: 6px;
+}
+.entity-field-label {
+    display: block;
+    font-size: 10px;
+    color: var(--sniff-text-secondary);
+    margin-bottom: 2px;
+    font-weight: 500;
+}
+.entity-name, .entity-age, .entity-details-box {
+    margin: 0;
+}
+
+/* Placeholder para campos de entidade vazios */
+.entity-name:empty::before,
+.entity-age:empty::before,
+.entity-details-box:empty::before {
+    color: var(--sniff-text-secondary);
+    opacity: 0.4;
+}
+.entity-name:empty::before { content: 'Ex.: João Barbosa'; }
+.entity-age:empty::before { content: 'Ex.: 22'; }
+.entity-details-box:empty::before { content: 'Adicione informações relevantes...'; }
+.company-field-name:empty::before { content: 'Ex.: Google' !important; }
+.company-field-cnpj:empty::before { content: 'XX.XXX.XXX/0001-XX' !important; }
+
+/* Estilos para modals */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+.modal-content {
+    background-color: var(--sniff-bg-widget);
+    border: 1px solid var(--sniff-border-color);
+    padding: 25px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 450px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.modal-content h4 {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+.modal-content p {
+    font-size: 0.9rem;
+    color: var(--sniff-text-secondary);
+    margin-bottom: 25px;
+}
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 25px;
+}
+.modal-actions button {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    background-color: #333;
+    color: var(--sniff-text-primary);
+}
+.modal-actions button:hover {
+    background-color: #444;
+}
+.modal-actions button.btn-primary {
+    background-color: var(--sniff-accent);
+    color: white;
+}
+.modal-actions button.btn-primary:hover {
+    background-color: #e84627;
+}
+.modal-actions button i {
+    margin-right: 8px;
+}
+
+/* Estilos para formulário de edição dos modals */
+.edit-entity-form .form-group {
+    margin-bottom: 15px;
+}
+.edit-entity-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+    color: var(--sniff-text-secondary);
+}
+.modal-content .form-group input, .modal-content .form-group textarea {
+    width: 100%;
+    background-color: var(--sniff-bg-dark);
+    border: 1px solid var(--sniff-border-color);
+    color: var(--sniff-text-primary);
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 1rem;
+}
+.modal-content .form-group input:focus, .modal-content .form-group textarea:focus {
+    outline: none;
+    border-color: var(--sniff-accent);
+}
+.edit-entity-form textarea {
+    resize: vertical;
+}
+.photo-upload-label {
+    display: block;
+    width: 120px;
+    height: 120px;
+    border: 2px dashed var(--sniff-border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+.photo-upload-label:hover {
+    border-color: var(--sniff-accent);
+}
+.photo-upload-label img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.photo-upload-label span {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: rgba(0,0,0,0.7);
+    color: white;
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 5px 0;
+}
+
+/* Estilos para o modo de ligação de nós */
+#svg-container.linking-mode {
+    cursor: crosshair;
+    background-color: #201a18;
+    transition: background-color 0.3s ease;
+}
+#svg-container.linking-mode .node-group.selected {
+    filter: drop-shadow(0 0 10px var(--sniff-accent));
+    -webkit-filter: drop-shadow(0 0 10px var(--sniff-accent));
+}
+
+/* Estiliza os nós que podem ser alvo da ligação */
+#svg-container.linking-mode .node-group:not(.selected) .node-rect {
+    stroke: var(--sniff-accent);
+    stroke-dasharray: 5,5;
+    stroke-opacity: 0.6;
+    transition: all 0.2s ease;
+}
+
+/* Adiciona um brilho branco ao nó alvo ao passar o mouse */
+#svg-container.linking-mode .node-group:not(.selected):hover {
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.7));
+    -webkit-filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.7));
+}
+#svg-container.linking-mode .node-group:not(.selected):hover .node-rect {
+    stroke-opacity: 1;
+}
+
+/* Estilos para o menu de contexto flutuante */
+#context-menu-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 21;
+    background-color: rgba(41, 41, 48, 0.5);
+    backdrop-filter: blur(2px);
+    border: 1px solid var(--sniff-border-color);
+    border-radius: 20px;
+    padding: 5px;
+    display: flex;
+    gap: 8px;
+
+    /* Estado inicial invisível */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+}
+
+#context-menu-container.visible {
+    opacity: 1;
+    pointer-events: all;
+}
+
+#context-menu-container button {
+    width: 20px;
+    height: 20px;
+    border: none;
+    background-color: transparent;
+    color: var(--sniff-text-primary);
+    border-radius: 50%;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+#context-menu-container button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#context-menu-container button#context-delete-btn:hover {
+    background-color: #e84627;
+}

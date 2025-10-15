@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projeto Sniff | InvMap</title>
+
+    <meta name="description" content="Mapa mental para investigações. Grátis e roda 100% no cliente.">
+    <meta name="keywords" content="OSINT, fontes abertas, investigação, cibersegurança, Brasil, inteligência, Sniff, mapa mental, mindmap, gratis">
+    <meta name="author" content="Wolf Security">
+
+    <meta property="og:title" content="Projeto Sniff | InvMap">
+    <meta property="og:description" content="Mapa mental para investigações. Grátis e roda 100% no cliente.">
+    <meta property="og:image" content="https://sniff.wolfsecurity.com.br/invmap/imagens/InvmapLogo.png">
+    <meta property="og:url" content="https://sniff.wolfsecurity.com.br/invmap">
+    <meta property="og:type" content="website">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Projeto Sniff | InvMap">
+    <meta name="twitter:description" content="Mapa mental para investigações. Grátis e roda 100% no cliente.">
+    <meta name="twitter:image" content="https://sniff.wolfsecurity.com.br/invmap/imagens/InvmapLogo.png">
+
+    <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Projeto Sniff | InvMap" />
+    <link rel="manifest" href="/favicon/site.webmanifest" />
+
+    <link rel="stylesheet" href="css/style.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-brand">
+            <img src="imagens/InvmapLogo.png" alt="Logo do InvMap" class="header-logo">
+            <h1>InvMap</h1>
+        </div>
+        <div class="header-info">
+            <a href="#" target="_blank" class="github-link">
+                <i class="fab fa-github"></i> GitHub
+            </a>
+            <span class="version-info">v1.1 (14/10/2025)</span>
+        </div>
+    </header>
+
+    <span id="text-measurer" style="position: absolute; visibility: hidden; height: auto; width: auto; white-space: nowrap; font-size: 14px;"></span>
+    <div id="details-measurer"></div>
+
+    <div id="add-controls-container">
+        <button class="add-node-context-btn" data-direction="top">+</button>
+        <button class="add-node-context-btn" data-direction="right">+</button>
+        <button class="add-node-context-btn" data-direction="bottom">+</button>
+        <button class="add-node-context-btn" data-direction="left">+</button>
+    </div>
+
+    <div id="context-menu-container">
+        <button id="context-link-btn" title="Ligar a outro nó">
+            <i class="fas fa-link"></i>
+        </button>
+        <button id="context-delete-btn" title="Apagar nó">
+            <i class="fas fa-trash-alt"></i>
+        </button>
+    </div>
+
+    <main id="svg-container">
+        <div id="controls-container">
+            <div id="controls">
+                <button id="add-root-node-btn" title="Adicionar novo nó">
+                    <i class="fas fa-plus-circle"></i>
+                </button>
+                <label for="add-image-input" class="icon-btn" title="Adicionar Nó de Imagem">
+                    <i class="fas fa-image"></i>
+                </label>
+                <input type="file" id="add-image-input" accept="image/*" style="display: none;">
+                <button id="add-entity-node-btn" title="Adicionar Entidade (Pessoa/Empresa)">
+                    <i class="fas fa-user-tie"></i>
+                </button>
+                <button id="link-node-btn" title="Ligar Nós Existentes">
+                    <i class="fas fa-link"></i>
+                </button>
+                <button id="remove-node-btn" title="Remover Nó Selecionado">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+                <span class="separator"></span>
+                <button id="save-file-btn" class="btn-primary" title="Salvar Mapa em Arquivo">
+                    <i class="fas fa-save"></i>
+                </button>
+                <input type="file" id="load-file-input" accept=".json" style="display: none;">
+                <label for="load-file-input" class="btn-secondary" title="Carregar Mapa de um Arquivo">
+                    <i class="fas fa-folder-open"></i>
+                </label>
+            </div>
+        </div>
+
+        <div id="entity-edit-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Editar Entidade</h4>
+                <div class="edit-entity-form">
+                    <div class="form-group-person">
+                        <div class="form-group">
+                            <label for="entity-edit-name">Nome</label>
+                            <input type="text" id="entity-edit-name" placeholder="Insira o nome completo">
+                        </div>
+                        <div class="form-group">
+                            <label for="entity-edit-age">Idade</label>
+                            <input type="text" id="entity-edit-age" placeholder="Ex: 22">
+                        </div>
+                        <div class="form-group">
+                            <label for="entity-edit-details">Detalhes</label>
+                            <textarea id="entity-edit-details" rows="4" placeholder="Adicione informações relevantes..."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-group-company" style="display: none;">
+                        <div class="form-group">
+                            <label for="entity-edit-company-name">Nome da Empresa</label>
+                            <input type="text" id="entity-edit-company-name" placeholder="Insira a razão social">
+                        </div>
+                        <div class="form-group">
+                            <label for="entity-edit-cnpj">CNPJ</label>
+                            <input type="text" id="entity-edit-cnpj" placeholder="00.000.000/0000-00">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Foto</label>
+                        <input type="file" id="entity-edit-photo-input" accept="image/*" style="display: none;">
+                        <label for="entity-edit-photo-input" class="photo-upload-label">
+                            <img id="entity-edit-photo-preview" src="" alt="Preview da foto">
+                            <span>Clique para alterar a foto</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="cancel-entity-edit-btn">Cancelar</button>
+                    <button type="button" id="save-entity-edit-btn" class="btn-primary">Salvar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="entity-type-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Adicionar Nova Entidade</h4>
+                <p>Selecione o tipo de entidade que você deseja adicionar ao mapa.</p>
+                <div class="modal-actions">
+                    <button type="button" id="add-person-btn"><i class="fas fa-user"></i> Pessoa</button>
+                    <button type="button" id="add-company-btn"><i class="fas fa-building"></i> Empresa</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="save-options-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h4>Salvar Mapa</h4>
+            <p>Como você deseja salvar seu arquivo?</p>
+            <div class="modal-actions" style="justify-content: center;">
+                <button type="button" id="save-unencrypted-btn">
+                    <i class="fas fa-file-alt"></i> Salvar como .json (Padrão)
+                </button>
+                <button type="button" id="save-encrypted-btn" class="btn-primary">
+                    <i class="fas fa-lock"></i> Salvar como .invmap (Criptografado)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="save-password-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h4>Proteger Arquivo com Senha</h4>
+            <p>Digite uma senha para criptografar seu mapa. Você precisará desta senha para abri-lo novamente.</p>
+            <div class="form-group">
+                <label for="save-password-input">Senha</label>
+                <input type="password" id="save-password-input" placeholder="••••••••••">
+            </div>
+            <div class="form-group">
+                <label for="save-password-confirm">Confirmar Senha</label>
+                <input type="password" id="save-password-confirm" placeholder="••••••••••">
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="cancel-save-btn">Cancelar</button>
+                <button type="button" id="confirm-save-btn" class="btn-primary">Salvar e Criptografar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="load-password-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h4>Arquivo Criptografado</h4>
+            <p>Este arquivo está protegido. Por favor, digite a senha para descriptografar e carregar o mapa.</p>
+            <div class="form-group">
+                <label for="load-password-input">Senha</label>
+                <input type="password" id="load-password-input" placeholder="••••••••••">
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="cancel-load-btn">Cancelar</button>
+                <button type="button" id="confirm-load-btn" class="btn-primary">Abrir Mapa</button>
+            </div>
+        </div>
+    </div>
+
+        <svg id="mindmap-svg" width="100%" height="100%">
+            <defs id="svg-defs">
+                <pattern id="grid-pattern" width="25" height="25" patternUnits="userSpaceOnUse">
+                    <path d="M 25 0 L 0 0 0 25" fill="none" class="grid-pattern-path"/>
+                </pattern>
+                <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5"
+                    markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead-path"></path>
+                </marker>
+            </defs>
+
+            <g id="camera">
+                <g id="background-layer">
+                    <rect id="grid-background" x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid-pattern)"/>
+                </g>
+
+                <g id="edges-layer"></g>
+
+                <g id="nodes-layer"></g>
+            </g>
+        </svg>
+    </main>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
