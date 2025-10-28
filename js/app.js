@@ -1,4 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // DEBUG
+    let debugMode = false;
 
     // --- Seletores e Configuração Inicial ---
     const svg = document.getElementById('mindmap-svg');
@@ -20,7 +22,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 1.5;
 
+    // --- Detecção de Toque ---
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    let lastTouchPos = { x: 0, y: 0 };
+    let initialPinchDistance = null;
+    let initialPinchCenter = null;
+    let touchStartTime = 0;
+    let lastTapTime = 0;
+    let touchStartPos = { x: 0, y: 0 };
+    const DOUBLE_TAP_DELAY = 300;
+    const MAX_TAP_MOVEMENT = 10;
+    let dragStartTimeout = null;
+    const DRAG_START_DELAY = 100;
+
     // --- Seletores do Modal e Botões ---
+    const exportMapBtn = document.getElementById('export-map-btn');
+    const exportModal = document.getElementById('export-modal');
+    const cancelExportBtn = document.getElementById('cancel-export-btn');
+    const confirmExportBtn = document.getElementById('confirm-export-btn');
+    const exportFormatSelect = document.getElementById('export-format');
+    const exportFilenameInput = document.getElementById('export-filename');
+    const pdfOptionsDiv = document.getElementById('pdf-options');
+    const pngOptionsDiv = document.getElementById('png-options');
+    const svgOptionsDiv = document.getElementById('svg-options');
+    const addLogoCheckbox = document.getElementById('export-add-logo');
+    const logoOptionsDiv = document.getElementById('logo-options');
+    const logoTypeSelect = document.getElementById('export-logo-type');
+    const logoUploadInput = document.getElementById('export-logo-upload');
+    const logoUploadLabel = document.querySelector('label[for="export-logo-upload"]');
+    const addTitleCheckbox = document.getElementById('export-add-title');
+    const titleOptionsDiv = document.getElementById('title-options');
     const entityModal = document.getElementById('entity-type-modal');
     const addEntityNodeBtn = document.getElementById('add-entity-node-btn');
     const addPersonBtn = document.getElementById('add-person-btn');
@@ -55,7 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
         cameraPos: { x: 0, y: 0 }, zoom: 1,
         editingNodeId: null,
         tempPhotoData: null,
-        linkingFromNodeId: null
+        linkingFromNodeId: null,
+        isModified: false
     };
 
     // --- Funções Auxiliares de Coordenadas ---
@@ -66,11 +98,54 @@ document.addEventListener('DOMContentLoaded', () => {
         return point.matrixTransform(camera.getScreenCTM().inverse());
     }
 
-    function getModelToScreenCoordinates(modelX, modelY) {
-        let point = svg.createSVGPoint();
-        point.x = modelX;
-        point.y = modelY;
-        return point.matrixTransform(camera.getCTM());
+    function getMapBounds() {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let hasElements = false;
+
+        for (const nodeId in state.nodes) {
+            const node = state.nodes[nodeId];
+            const halfWidth = node.width / 2;
+            const halfHeight = node.height / 2;
+            minX = Math.min(minX, node.x - halfWidth);
+            minY = Math.min(minY, node.y - halfHeight);
+            maxX = Math.max(maxX, node.x + halfWidth);
+            maxY = Math.max(maxY, node.y + halfHeight);
+            hasElements = true;
+        }
+
+        const padding = 20;
+        if (hasElements) {
+            return {
+                x: minX - padding,
+                y: minY - padding,
+                width: (maxX - minX) + (padding * 2),
+                height: (maxY - minY) + (padding * 2)
+            };
+        } else {
+            return { x: 0, y: 0, width: 100, height: 100 };
+        }
+    }
+
+    // --- Funções Auxiliares para Pinch-Zoom ---
+    function getPinchDistance(touches) {
+        const touch1 = touches[0];
+        const touch2 = touches[1];
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        return Math.sqrt(dx * dx + dy * dy); // Teorema de Pitágoras :(
+    }
+
+    function getPinchCenter(touches) {
+        const touch1 = touches[0];
+        const touch2 = touches[1];
+        return {
+            x: (touch1.clientX + touch2.clientX) / 2,
+            y: (touch1.clientY + touch2.clientY) / 2
+        };
+    }
+
+    function setModifiedStatus(status) {
+        if(status){if(!state.isModified){state.isModified=true;}}else{if(state.isModified){state.isModified=false;}}
     }
 
     // --- Lógica de Renderização e UI ---
@@ -193,6 +268,85 @@ document.addEventListener('DOMContentLoaded', () => {
         nodesLayer.appendChild(group);
     }
 
+    function startTextNodeEditing(nodeGroup, nodeId, nodeData) {
+        hideNodeControls();
+
+        const foreignObject = nodeGroup.querySelector('foreignObject');
+        if (!foreignObject) {
+            console.error("Elemento foreignObject não encontrado para o nó:", nodeId);
+            return;
+        }
+
+        const label = foreignObject.querySelector('.node-label');
+        const textarea = foreignObject.querySelector('.node-editor-textarea');
+        const rect = nodeGroup.querySelector('.node-rect');
+
+        if (!label || !textarea || !rect) {
+            console.error("Elementos internos do nó não encontrados:", nodeId);
+            return;
+        }
+
+        textarea.value = nodeData.label;
+        label.style.display = 'none';
+        textarea.style.display = 'block';
+        textarea.focus();
+        textarea.select();
+
+        const onInput = () => {
+            const lines = textarea.value.split('\n');
+            let longestLine = '';
+            lines.forEach(line => { if (line.length > longestLine.length) longestLine = line; });
+            textMeasurer.textContent = longestLine || ' ';
+            const newWidth = Math.max(100, textMeasurer.offsetWidth + 40);
+            nodeData.width = newWidth;
+            rect.setAttribute('width', newWidth);
+            rect.setAttribute('x', -newWidth / 2);
+            foreignObject.setAttribute('width', newWidth - 20);
+            foreignObject.setAttribute('x', -(newWidth / 2) + 10);
+
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight) + 'px';
+            const newHeight = Math.max(50, textarea.scrollHeight + 20);
+            nodeData.height = newHeight;
+            rect.setAttribute('height', newHeight);
+            rect.setAttribute('y', -newHeight / 2);
+            foreignObject.setAttribute('height', newHeight);
+            foreignObject.setAttribute('y', -(newHeight / 2) + 10);
+            updateConnectedEdges(nodeId);
+        };
+        onInput();
+        textarea.addEventListener('input', onInput);
+
+        const finishEditing = (save) => {
+            textarea.removeEventListener('input', onInput);
+            if (save) {
+                nodeData.label = textarea.value;
+            }
+            if (label) {
+                label.innerHTML = nodeData.label.replace(/\n/g, '<br>');
+                label.style.display = 'block';
+            }
+            textarea.style.display = 'none';
+
+            render();
+
+            if(state.selectedNodeId === nodeId) {
+                showNodeControls(nodeData);
+            }
+        };
+
+        textarea.addEventListener('blur', () => finishEditing(true), { once: true });
+        textarea.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                finishEditing(true);
+                textarea.blur();
+            }
+            if (e.key === 'Escape') {
+                finishEditing(false);
+                textarea.blur();
+            }
+        });
+    }
 
     function renderEdge(edgeData) {
         const svgNS = "http://www.w3.org/2000/svg";
@@ -364,6 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
 
             // Sai do modo de ligação e renderiza a nova conexão
+            setModifiedStatus(true);
             state.linkingFromNodeId = null;
             svgContainer.classList.remove('linking-mode');
             render();
@@ -411,6 +566,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const nodeId = nodeGroup.id;
         const nodeData = state.nodes[nodeId];
 
+        if (nodeData && nodeData.type === 'entity') {
+            openEntityEditModal(nodeData);
+            setModifiedStatus(true);
+            return;
+        }
         if (nodeData && nodeData.type === 'image') {
             const blob = dataURLtoBlob(nodeData.imageData);
             const url = URL.createObjectURL(blob);
@@ -418,79 +578,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (nodeData && nodeData.type === 'entity') {
-            openEntityEditModal(nodeData);
-            return;
+        if (nodeData && !nodeData.type) {
+            startTextNodeEditing(nodeGroup, nodeId, nodeData);
+            setModifiedStatus(true);
         }
-
-        hideNodeControls();
-
-        const foreignObject = nodeGroup.querySelector('foreignObject');
-        if (!foreignObject) {
-            console.error("Elemento foreignObject não encontrado para o nó:", nodeId);
-            return;
-        }
-
-        const label = foreignObject.querySelector('.node-label');
-        const textarea = foreignObject.querySelector('.node-editor-textarea');
-        const rect = nodeGroup.querySelector('.node-rect');
-
-        textarea.value = nodeData.label;
-        label.style.display = 'none';
-        textarea.style.display = 'block';
-        textarea.focus();
-        textarea.select();
-
-        const onInput = () => {
-            const lines = textarea.value.split('\n');
-            let longestLine = '';
-            lines.forEach(line => { if (line.length > longestLine.length) longestLine = line; });
-            textMeasurer.textContent = longestLine || ' ';
-            const newWidth = textMeasurer.offsetWidth + 40;
-            nodeData.width = newWidth;
-            rect.setAttribute('width', newWidth);
-            rect.setAttribute('x', -newWidth / 2);
-            foreignObject.setAttribute('width', newWidth - 20);
-            foreignObject.setAttribute('x', -(newWidth / 2) + 10);
-
-            textarea.style.height = 'auto';
-            textarea.style.height = (textarea.scrollHeight) + 'px';
-            const newHeight = textarea.scrollHeight + 20;
-            nodeData.height = newHeight;
-            rect.setAttribute('height', newHeight);
-            rect.setAttribute('y', -newHeight / 2);
-            foreignObject.setAttribute('height', newHeight);
-            foreignObject.setAttribute('y', -newHeight / 2);
-            updateConnectedEdges(nodeId);
-        };
-        onInput();
-        textarea.addEventListener('input', onInput);
-
-        const finishEditing = (save) => {
-            textarea.removeEventListener('input', onInput);
-            if (save) {
-                nodeData.label = textarea.value;
-            }
-            label.innerHTML = nodeData.label.replace(/\n/g, '<br>');
-            label.style.display = 'block';
-            textarea.style.display = 'none';
-            if(state.selectedNodeId === nodeId) {
-                showNodeControls(nodeData);
-            }
-        };
-
-        textarea.addEventListener('blur', () => finishEditing(true), { once: true });
-        textarea.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                finishEditing(true);
-            }
-            if (e.key === 'Escape') {
-                finishEditing(false);
-            }
-        });
     });
 
-    svg.addEventListener('mousedown', (e) => {
+    function handleMouseDown(e) {
         const targetNodeGroup = e.target.closest('.node-group');
         if (targetNodeGroup) {
             e.preventDefault();
@@ -501,13 +595,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const nodePos = state.nodes[state.draggedNodeId];
             state.dragOffset.x = mousePos.x - nodePos.x;
             state.dragOffset.y = mousePos.y - nodePos.y;
+            setModifiedStatus(true);
         } else {
             state.panning = true;
             state.lastMousePos = { x: e.clientX, y: e.clientY };
         }
-    });
+    };
 
-    svg.addEventListener('mousemove', (e) => {
+    function handleMouseMove(e) {
         if (state.dragging && state.draggedNodeId) {
             e.preventDefault();
             const node = state.nodes[state.draggedNodeId];
@@ -520,6 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateConnectedEdges(state.draggedNodeId);
                 if (state.selectedNodeId === state.draggedNodeId) updateAddControlsPosition(node);
             }
+            setModifiedStatus(true);
         } else if (state.panning) {
             const dx = e.clientX - state.lastMousePos.x;
             const dy = e.clientY - state.lastMousePos.y;
@@ -529,9 +625,9 @@ document.addEventListener('DOMContentLoaded', () => {
             state.lastMousePos = { x: e.clientX, y: e.clientY };
             if (state.selectedNodeId) showNodeControls(state.nodes[state.selectedNodeId]);
         }
-    });
+    };
 
-    window.addEventListener('mouseup', (e) => {
+    function handleMouseUp(e) {
         const wasDragging = state.dragging;
         state.dragging = false;
         state.draggedNodeId = null;
@@ -539,9 +635,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wasDragging && state.selectedNodeId) {
             showNodeControls(state.nodes[state.selectedNodeId]);
         }
-    });
+    };
 
-    svg.addEventListener('wheel', (e) => {
+    function handleMouseWheel(e) {
         e.preventDefault();
         const zoomSpeed = 0.001;
         const zoomFactor = 1 - e.deltaY * zoomSpeed;
@@ -570,7 +666,309 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeNode) {
             showNodeControls(activeNode);
         }
-    });
+    };
+    
+    // --- Funções Handler para Eventos de Toque ---
+
+    function handleTouchStart(e) {
+        e.preventDefault();
+        clearTimeout(dragStartTimeout);
+        if (e.touches.length === 2) {
+            state.panning = false; // Garante que não está fazendo pan/drag
+            state.dragging = false;
+            initialPinchDistance = getPinchDistance(e.touches);
+            initialPinchCenter = getPinchCenter(e.touches); // Guarda o centro em coordenadas da tela
+            hideNodeControls();
+        } else if (e.touches.length === 1) {
+            const touch = e.touches[0];
+
+            touchStartTime = Date.now();
+            touchStartPos = { x: touch.clientX, y: touch.clientY };
+            const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
+
+            // Verifica se tocou em nó ou no fundo
+            if (targetNodeGroup) {
+                state.draggedNodeId = targetNodeGroup.id;
+                const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
+                const nodePos = state.nodes[state.draggedNodeId];
+                state.dragOffset.x = touchPosSVG.x - nodePos.x;
+                state.dragOffset.y = touchPosSVG.y - nodePos.y;
+
+                if (state.selectedNodeId !== targetNodeGroup.id) {
+                    if (state.selectedNodeId) {
+                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                    }
+                    state.selectedNodeId = targetNodeGroup.id;
+                    targetNodeGroup.classList.add('selected');
+                }
+                state.hoveredNodeId = targetNodeGroup.id;
+
+                dragStartTimeout = setTimeout(() => {
+                    if (state.draggedNodeId) {
+                        state.dragging = true;
+                        hideNodeControls();
+                    }
+                }, DRAG_START_DELAY);
+                setModifiedStatus(true);
+            } else {
+                // Inicia o Pan
+                state.panning = true;
+                lastTouchPos = { x: touch.clientX, y: touch.clientY };
+                hideNodeControls();
+            }
+        }
+    }
+
+    function handleTouchMove(e) {
+        e.preventDefault();
+
+        if (e.touches.length === 2 && initialPinchDistance !== null && initialPinchCenter !== null) {
+            // --- LÓGICA DO PINCH-ZOOM ---
+            const currentPinchDistance = getPinchDistance(e.touches);
+            const currentPinchCenter = getPinchCenter(e.touches);
+
+            const zoomFactor = currentPinchDistance / initialPinchDistance;
+            const newZoom = state.zoom * zoomFactor;
+            const clampedZoom = Math.max(MIN_ZOOM, Math.min(newZoom, MAX_ZOOM));
+
+            if (clampedZoom === state.zoom && zoomFactor !== 1) {
+                initialPinchDistance = currentPinchDistance;
+                initialPinchCenter = currentPinchCenter;
+                return;
+            }
+
+            const actualZoomFactor = clampedZoom / state.zoom;
+            const initialCenterSVG = getSVGPoint(initialPinchCenter.x, initialPinchCenter.y);
+            state.cameraPos.x = initialCenterSVG.x + (state.cameraPos.x - initialCenterSVG.x) * actualZoomFactor;
+            state.cameraPos.y = initialCenterSVG.y + (state.cameraPos.y - initialCenterSVG.y) * actualZoomFactor;
+            state.zoom = clampedZoom;
+
+            updateCameraTransform();
+
+            initialPinchDistance = currentPinchDistance;
+            initialPinchCenter = currentPinchCenter;
+
+            const activeNode = state.nodes[state.selectedNodeId || state.hoveredNodeId];
+            if (activeNode) showNodeControls(activeNode);
+
+        } else if (e.touches.length === 1) { // Só executa lógica de drag/pan se for um único toque
+            const touch = e.touches[0];
+
+            const dx = touch.clientX - touchStartPos.x;
+            const dy = touch.clientY - touchStartPos.y;
+            const movementDistance = Math.sqrt(dx * dx + dy * dy);
+
+            // Se o dedo se moveu antes do timeout de drag e estava sobre um nó,
+            // cancela o timeout e inicia o drag imediatamente.
+            // MAX_TAP_MOVEMENT / 2 base para detectar movimento intencional.
+            if (dragStartTimeout && movementDistance > MAX_TAP_MOVEMENT / 2) {
+                clearTimeout(dragStartTimeout);
+                dragStartTimeout = null;
+                if (state.draggedNodeId) {
+                    state.dragging = true;
+                    hideNodeControls();
+                }
+            }
+
+            // Agora, executa a lógica de drag ou pan SOMENTE se o estado correspondente estiver ativo
+            if (state.dragging && state.draggedNodeId) {
+                // Lógica de Drag
+                const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
+                const node = state.nodes[state.draggedNodeId];
+                node.x = touchPosSVG.x - state.dragOffset.x;
+                node.y = touchPosSVG.y - state.dragOffset.y;
+                const nodeElement = document.getElementById(state.draggedNodeId);
+                if (nodeElement) {
+                    nodeElement.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+                    updateConnectedEdges(state.draggedNodeId);
+                    showNodeControls(node);
+                }
+                setModifiedStatus(true);
+            } else if (state.panning) {
+                // Lógica de Pan
+                const panDx = touch.clientX - lastTouchPos.x;
+                const panDy = touch.clientY - lastTouchPos.y;
+                state.cameraPos.x += panDx;
+                state.cameraPos.y += panDy;
+                updateCameraTransform();
+                lastTouchPos = { x: touch.clientX, y: touch.clientY };
+                const activeNode = state.nodes[state.selectedNodeId || state.hoveredNodeId];
+                if (activeNode) showNodeControls(activeNode);
+            }
+        }
+    }
+
+    function handleTouchEnd(e) {
+        clearTimeout(dragStartTimeout);
+        dragStartTimeout = null;
+
+        if (!e.changedTouches || e.changedTouches.length === 0) return;
+
+        const touch = e.changedTouches[0];
+        const currentTime = Date.now();
+        const touchDuration = currentTime - touchStartTime;
+
+        const dx = touch.clientX - touchStartPos.x;
+        const dy = touch.clientY - touchStartPos.y;
+        const movementDistance = Math.sqrt(dx * dx + dy * dy);
+
+        // Verifica se foi um Tap válido: curta duração, pouco movimento, não era pinch
+        const isTap = touchDuration < DOUBLE_TAP_DELAY && movementDistance < MAX_TAP_MOVEMENT && initialPinchDistance === null;
+
+        // Guarda os estados ANTES de resetar para saber o que aconteceu
+        const wasDragging = state.dragging;
+        const wasPanning = state.panning;
+        const wasPinching = initialPinchDistance !== null;
+
+        // --- Reseta todos os estados de interação ---
+        state.dragging = false;
+        state.draggedNodeId = null;
+        state.panning = false;
+        initialPinchDistance = null;
+        initialPinchCenter = null;
+        lastTouchPos = { x: 0, y: 0 };
+
+        // --- LÓGICA DE TAP E DOUBLE-TAP ---
+        if (isTap) {
+            const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
+            const timeSinceLastTap = currentTime - lastTapTime;
+
+            if (timeSinceLastTap < DOUBLE_TAP_DELAY && targetNodeGroup) {
+                // --- É DOUBLE-TAP ---
+                //console.log("Double Tap detected on node:", targetNodeGroup.id); // Debug
+                const nodeId = targetNodeGroup.id;
+                const nodeData = state.nodes[nodeId];
+
+                if (nodeData && nodeData.type === 'entity') {
+                    openEntityEditModal(nodeData);
+                } else if (nodeData && nodeData.type === 'image') {
+                    const blob = dataURLtoBlob(nodeData.imageData);
+                    const url = URL.createObjectURL(blob);
+                    window.open(url);
+                } else if (nodeData && !nodeData.type) {
+                    startTextNodeEditing(targetNodeGroup, nodeId, nodeData);
+                }
+                lastTapTime = 0; // Reseta para evitar triple-tap
+            } else {
+                // --- É SINGLE-TAP ---
+                //console.log("Single Tap detected"); // Debug
+                if (targetNodeGroup) {
+                    state.selectedNodeId = targetNodeGroup.id;
+                    state.hoveredNodeId = targetNodeGroup.id;
+                    targetNodeGroup.classList.add('selected');
+                    showNodeControls(state.nodes[state.selectedNodeId]);
+                } else {
+                    // Tocou no fundo, desmarca
+                    if (state.selectedNodeId) {
+                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                        state.selectedNodeId = null;
+                    }
+                    state.hoveredNodeId = null;
+                    hideNodeControls();
+                }
+                lastTapTime = currentTime;
+            }
+        } else { // Não foi um tap válido (foi drag, pan, pinch ou toque longo)
+             if ((wasDragging || wasPanning || wasPinching) && state.selectedNodeId) {
+                 showNodeControls(state.nodes[state.selectedNodeId]);
+             } else if (state.selectedNodeId && !wasDragging && !wasPanning && !wasPinching) {
+                 // Se foi um toque longo sem mover (que não é tap),
+                 // e tinha um nó selecionado (pelo touchstart), mostra os controles dele.
+                  showNodeControls(state.nodes[state.selectedNodeId]);
+             } else if (!state.selectedNodeId){
+                 // Se terminou uma interação e nada está selecionado, garante que controles estão escondidos
+                 hideNodeControls();
+             }
+             lastTapTime = 0; // Reseta se não foi tap
+        }
+
+        touchStartPos = { x: 0, y: 0 };
+
+        // Se ainda houver outros dedos, reseta o estado de pinch
+        if (e.touches.length > 0) {
+             initialPinchDistance = null;
+             initialPinchCenter = null;
+        }
+    }
+
+    function handleTouchEnd(e) {
+        const touch = e.changedTouches[0];
+        const currentTime = Date.now();
+        const touchDuration = currentTime - touchStartTime;
+
+        const dx = touch.clientX - touchStartPos.x;
+        const dy = touch.clientY - touchStartPos.y;
+        const movementDistance = Math.sqrt(dx * dx + dy * dy);
+
+        // Verifica se foi um Tap válido (curta duração, pouco movimento, não estava fazendo pinch)
+        const isTap = touchDuration < DOUBLE_TAP_DELAY && movementDistance < MAX_TAP_MOVEMENT && initialPinchDistance === null && !state.dragging && !state.panning;
+
+        // --- Reseta estados de interação ---
+        const wasDragging = state.dragging;
+        const wasPanning = state.panning;
+        const wasPinching = initialPinchDistance !== null;
+
+        state.dragging = false;
+        state.draggedNodeId = null;
+        state.panning = false;
+        initialPinchDistance = null;
+        initialPinchCenter = null;
+        lastTouchPos = { x: 0, y: 0 };
+
+        // --- LÓGICA DE TAP E DOUBLE-TAP ---
+        if (isTap) {
+            const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
+            const timeSinceLastTap = currentTime - lastTapTime;
+
+            if (timeSinceLastTap < DOUBLE_TAP_DELAY && targetNodeGroup) {
+                // --- É DOUBLE-TAP ---
+                const nodeId = targetNodeGroup.id;
+                const nodeData = state.nodes[nodeId];
+
+                if (nodeData && nodeData.type === 'entity') {
+                    openEntityEditModal(nodeData);
+                } else if (nodeData && nodeData.type === 'image') {
+                    const blob = dataURLtoBlob(nodeData.imageData);
+                    const url = URL.createObjectURL(blob);
+                    window.open(url);
+                } else if (nodeData && !nodeData.type) {
+                    startTextNodeEditing(targetNodeGroup, nodeId, nodeData);
+                }
+                lastTapTime = 0; // Reseta para evitar triple-tap
+            } else {
+                // --- É SINGLE-TAP ---
+                if (targetNodeGroup) {
+                    if (state.selectedNodeId !== targetNodeGroup.id) {
+                        if (state.selectedNodeId) {
+                            document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                        }
+                        state.selectedNodeId = targetNodeGroup.id;
+                        targetNodeGroup.classList.add('selected');
+                    }
+                    state.hoveredNodeId = targetNodeGroup.id;
+                    showNodeControls(state.nodes[state.selectedNodeId]);
+                } else {
+                    // Tocou no fundo, desmarca
+                    if (state.selectedNodeId) {
+                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                        state.selectedNodeId = null;
+                    }
+                    state.hoveredNodeId = null;
+                    hideNodeControls();
+                }
+                lastTapTime = currentTime;
+            }
+        } else {
+            // Se não foi tap (foi drag, pan ou pinch), apenas mostra controles se necessário
+            if (wasDragging || wasPanning || wasPinching) {
+                const activeNode = state.nodes[state.selectedNodeId || state.hoveredNodeId];
+                if (activeNode) showNodeControls(activeNode);
+            }
+            lastTapTime = 0;
+        }
+
+        touchStartPos = { x: 0, y: 0 };
+    }
 
     const addRootNodeBtn = document.getElementById('add-root-node-btn');
     const removeNodeBtn = document.getElementById('remove-node-btn');
@@ -587,6 +985,7 @@ document.addEventListener('DOMContentLoaded', () => {
             id: newNodeId, x: centerSVGPoint.x, y: centerSVGPoint.y,
             width: 150, height: 50, label: "Novo Tópico"
         };
+        setModifiedStatus(true);
         render();
     });
 
@@ -613,6 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.edges[newEdgeId] = { id: newEdgeId, source: parentId, target: newNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
             if(state.selectedNodeId) document.getElementById(state.selectedNodeId)?.classList.remove('selected');
             state.selectedNodeId = newNodeId;
+            setModifiedStatus(true);
             render();
             showNodeControls(state.nodes[newNodeId]);
         }
@@ -646,6 +1046,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.selectedNodeId === nodeIdToRemove) state.selectedNodeId = null;
         state.hoveredNodeId = null;
         hideNodeControls();
+        setModifiedStatus(true);
         render();
     }
     removeNodeBtn.addEventListener('click', deleteSelectedNode);
@@ -675,6 +1076,7 @@ document.addEventListener('DOMContentLoaded', () => {
         a.click();
         URL.revokeObjectURL(url);
         saveOptionsModal.style.display = 'none';
+        setModifiedStatus(false);
     });
 
     // Botão: Salvar como .invmap
@@ -711,6 +1113,7 @@ document.addEventListener('DOMContentLoaded', () => {
         a.click();
         URL.revokeObjectURL(url);
         cancelSaveBtn.click();
+        setModifiedStatus(false);
     });
 
     let encryptedFileContent = null;
@@ -738,6 +1141,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         reader.readAsText(file);
         e.target.value = '';
+        setModifiedStatus(false);
     });
 
     // Lógica do modal de senha para carregar
@@ -763,6 +1167,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideNodeControls();
                 updateCameraTransform();
                 render();
+                setModifiedStatus(false);
             } else { throw new Error('Formato de arquivo inválido.'); }
         } catch (error) {
             console.error("Erro ao carregar o arquivo:", error);
@@ -801,7 +1206,332 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         reader.readAsDataURL(file);
         e.target.value = '';
+        setModifiedStatus(true);
     });
+
+    // --- Funções de Exportação ---
+
+    async function generateCleanSvgString(options) {
+        const svgElement = document.getElementById('mindmap-svg');
+        if (!svgElement) { return null; }
+
+        const bounds = getMapBounds();
+        if (bounds.width <= 0 || bounds.height <= 0) {
+            console.error("Bounds inválidos calculados:", bounds);
+            return null;
+        }
+
+        const svgClone = svgElement.cloneNode(true);
+        const svgNS = "http://www.w3.org/2000/svg";
+        const gridBackground = svgClone.querySelector('#grid-background');
+        if (gridBackground) gridBackground.remove();
+
+        let nodeBgColor = '#363640';
+        let nodeStrokeColor = '#AAAAAA';
+        let textColor = '#F0F0F0';
+        let edgeColor = '#666666';
+
+        if (options.exportTheme === 'light') {
+            nodeBgColor = '#E0E0E0';
+            nodeStrokeColor = '#888888';
+            textColor = '#333333';
+            edgeColor = '#555555';
+        } else if (options.exportTheme === 'dark') {
+            nodeBgColor = '#363640';
+            nodeStrokeColor = '#AAAAAA';
+            textColor = '#F0F0F0';
+            edgeColor = '#666666';
+        }
+
+        svgClone.querySelectorAll('.node-group').forEach(group => {
+            const nodeId = group.getAttribute('id');
+            const nodeData = state.nodes[nodeId];
+            const rect = group.querySelector('.node-rect');
+            const foreignObject = group.querySelector('foreignObject');
+
+            if (rect) {
+                rect.setAttribute('style', `fill: ${nodeBgColor}; stroke: ${nodeStrokeColor}; stroke-width: 1.5px; rx: 8px;`);
+            }
+            if (foreignObject && nodeData) {
+                let labelText = "", fontSize = 14, textYOffset = 0, nodeHeight = nodeData.height || 50;
+                if (!nodeData.type) { labelText = nodeData.label || ""; }
+                else if (nodeData.type === 'entity') { labelText = `${nodeData.name || "[Entidade]"}${nodeData.age ? ` (${nodeData.age})` : ''}`; fontSize = 16; }
+                else if (nodeData.type === 'image') { labelText = nodeData.label || "[Imagem]"; fontSize = 10; textYOffset = (nodeHeight / 2) - (fontSize / 2) - 5; }
+                foreignObject.remove();
+                const textElement = document.createElementNS(svgNS, "text");
+                textElement.setAttribute('style', `fill: ${textColor}; font-family: sans-serif; font-size: ${fontSize}px; text-anchor: middle; dominant-baseline: middle;`);
+                textElement.setAttribute('x', '0');
+                textElement.setAttribute('y', textYOffset.toString());
+                const lines = labelText.split('\n');
+                const lineHeight = fontSize * 1.2;
+                textElement.setAttribute('y', (textYOffset - ((lines.length - 1) * lineHeight) / 2).toString());
+                lines.forEach((line, index) => {
+                    const tspan = document.createElementNS(svgNS, "tspan");
+                    tspan.setAttribute('x', '0');
+                    tspan.setAttribute('dy', index === 0 ? '0' : `${lineHeight}px`);
+                    tspan.textContent = line;
+                    textElement.appendChild(tspan);
+                });
+                group.appendChild(textElement);
+            }
+        });
+
+        svgClone.querySelectorAll('.edge-path').forEach(path => {
+            path.setAttribute('style', `stroke: ${edgeColor}; stroke-width: 1.5px; fill: none; marker-end: url(#arrowhead);`);
+        });
+        svgClone.querySelectorAll('.arrowhead-path').forEach(path => {
+            path.setAttribute('style', `fill: ${edgeColor};`);
+        });
+
+        svgClone.setAttribute("xmlns", svgNS);
+        svgClone.style.backgroundColor = options.bgColor || '#FFFFFF';
+        // Define width, height e viewBox baseados nos bounds calculados
+        svgClone.setAttribute('width', bounds.width.toString());
+        svgClone.setAttribute('height', bounds.height.toString());
+        // O viewBox deve começar nas coordenadas mínimas e ter a largura/altura total
+        svgClone.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+        svgClone.style.width = null;
+        svgClone.style.height = null;
+
+        const svgDoctype = '<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">';
+        const svgData = svgDoctype + new XMLSerializer().serializeToString(svgClone);
+        return svgData;
+    }
+
+    async function generatePngDataUrl(options) {
+        const svgOptions = {
+            bgColor: options.bgColor || '#FFFFFF',
+            exportTheme: options.exportTheme
+        };
+        const svgString = await generateCleanSvgString(svgOptions);
+        if (!svgString) {
+            console.error("Falha ao gerar string SVG para PNG.");
+            return null;
+        }
+
+        const img = new Image();
+        const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+        const url = URL.createObjectURL(svgBlob);
+
+        const loadImagePromise = new Promise((resolve, reject) => {
+            img.onload = () => {
+                console.log(`Imagem SVG carregada (PNG)! Dimensões: ${img.naturalWidth} x ${img.naturalHeight}`);
+                if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+                    reject(new Error("Imagem SVG carregada com dimensões zero."));
+                } else {
+                    resolve(img);
+                }
+            };
+            img.onerror = (e) => {
+                console.error("img.onerror (PNG):", e);
+                reject(new Error("Falha ao carregar Blob SVG na tag Image."));
+            };
+            img.src = url;
+        });
+
+        try {
+            const loadedImage = await loadImagePromise;
+
+            // Calcular Dimensões Finais do Canvas
+            const bounds = getMapBounds();
+            const scale = options.pngScale || 1;
+            const canvasWidth = Math.max(1, Math.round(bounds.width * scale));
+            const canvasHeight = Math.max(1, Math.round(bounds.height * scale));
+
+            // Criar Canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error("Não foi possível obter o contexto 2D.");
+
+            ctx.fillStyle = options.bgColor || '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Desenhar a imagem SVG inteira no canvas
+            ctx.drawImage(loadedImage, 0, 0, canvasWidth, canvasHeight);
+
+            // Gerar Data URL
+            const pngUrl = canvas.toDataURL('image/png');
+            return pngUrl;
+
+        } catch (error) {
+            console.error("Erro durante generatePngDataUrl:", error);
+            return null;
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    async function exportAsPNG(filename, options) {
+        const pngUrl = await generatePngDataUrl(options);
+        if (pngUrl) {
+            const a = document.createElement('a');
+            a.href = pngUrl;
+            a.download = `${filename}.png`;
+            a.click();
+        } else {
+            alert("Ocorreu um erro ao gerar a imagem PNG.");
+        }
+    }
+
+    function generateTextMap(startNodeId = "root", indent = "") {
+        let textOutput = "";
+        const visitedNodes = new Set(); // Para evitar loops infinitos (temporário)
+
+        function traverse(nodeId, currentIndent) {
+            if (!nodeId || visitedNodes.has(nodeId)) {
+                return; // Sai se o nó não existe ou já foi visitado
+            }
+            visitedNodes.add(nodeId);
+
+            const node = state.nodes[nodeId];
+            if (!node) return; // Sai se os dados do nó não existem
+
+            // Adiciona a linha para o nó atual
+            let nodeLabel = node.label || node.name || `[Nó ${node.type || 'sem título'}]`;
+            textOutput += `${currentIndent}- ${nodeLabel}\n`;
+
+            // Encontra os filhos diretos deste nó
+            const childrenIds = [];
+            for (const edgeId in state.edges) {
+                if (state.edges[edgeId].source === nodeId) {
+                    childrenIds.push(state.edges[edgeId].target);
+                }
+            }
+
+            // Recursivamente chama para cada filho
+            childrenIds.forEach(childId => {
+                traverse(childId, currentIndent + "  "); // Adiciona indentação
+            });
+        }
+
+        traverse(startNodeId, indent);
+
+        if (textOutput.split('\n').length <= 2 && Object.keys(state.nodes).length <= 1) {
+            return "Mapa vazio ou contém apenas o nó raiz.";
+        }
+
+        return textOutput;
+    }
+
+    async function exportAsPDF(filename, options) {
+        const pngOptions = { ...options, pngScale: 2 };
+        const pngUrl = await generatePngDataUrl(pngOptions);
+
+        if (!pngUrl) {
+            alert("Erro ao gerar a imagem base para o PDF.");
+            return;
+        }
+
+        let logoDataUrl = null;
+        if (options.addLogo) {
+            if (options.logoType === 'default') {
+                try {
+                    const response = await fetch('imagens/InvmapLogo.png');
+                    if (!response.ok) throw new Error('Falha ao buscar logo padrão');
+                    const blob = await response.blob();
+                    logoDataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                    console.log("Logo padrão carregada.");
+                } catch (error) {
+                    console.error("Erro ao carregar logo padrão:", error);
+                }
+            } else if (options.logoType === 'upload' && options.logoFile) {
+                try {
+                    logoDataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(options.logoFile);
+                    });
+                    console.log("Logo personalizada carregada.");
+                } catch (error) {
+                    console.error("Erro ao carregar logo personalizada:", error);
+                }
+            }
+        }
+
+        try {
+            const bounds = getMapBounds(); // Obtém bounds em unidades SVG/pt
+            const pdfWidthPt = Math.max(100, Math.round(bounds.width));
+            const pdfHeightPt = Math.max(100, Math.round(bounds.height));
+            const orientation = pdfWidthPt > pdfHeightPt ? 'l' : 'p';
+            console.log(`Dimensões do PDF (pt): ${pdfWidthPt} x ${pdfHeightPt}`);
+
+            const { jsPDF } = window.jspdf;
+            const pdfDoc = new jsPDF({
+                unit: 'pt',
+                format: [pdfWidthPt, pdfHeightPt],
+                orientation: orientation
+            });
+            pdfDoc.addImage(
+                pngUrl,
+                'PNG',
+                0,          // Posição X no PDF
+                0,          // Posição Y no PDF
+                pdfWidthPt,
+                pdfHeightPt
+            );
+            console.log("Imagem adicionada ao PDF.");
+
+            const pageMargin = 20; // Margem em pt
+            let currentX = pageMargin; // Posição X inicial
+
+            if (logoDataUrl) {
+                try {
+                    const imgProps = pdfDoc.getImageProperties(logoDataUrl);
+                    const logoHeight = 30; // Altura fixa da logo em pt
+                    const logoWidth = (imgProps.width * logoHeight) / imgProps.height; // Calcula largura proporcional
+
+                    pdfDoc.addImage(logoDataUrl, imgProps.fileType, currentX, pageMargin, logoWidth, logoHeight);
+                    currentX += logoWidth + 10; // Avança a posição X
+                    console.log("Logo adicionada ao PDF.");
+                } catch (imgError) {
+                    console.error("Erro ao adicionar logo ao PDF:", imgError);
+                }
+            }
+
+            if (options.addTitle) {
+                pdfDoc.setFontSize(12);
+                pdfDoc.setTextColor(51, 51, 51); // Cor do titulo
+                pdfDoc.text(options.customTitle || "Mapa Mental InvMap", currentX, pageMargin + 20); // Posiciona ao lado da logo
+                console.log("Título adicionado ao PDF.");
+            }
+
+            const textMap = generateTextMap();
+
+            if (textMap) {
+                pdfDoc.addPage();
+                pdfDoc.setFont('helvetica', 'sans-serif');
+                pdfDoc.setFontSize(10);
+                pdfDoc.setTextColor(51, 51, 51);
+                const pageHeight = pdfDoc.internal.pageSize.getHeight();
+                const pageMargin = 40;
+                let currentY = pageMargin;
+
+                const lines = pdfDoc.splitTextToSize(textMap, pdfDoc.internal.pageSize.getWidth() - (pageMargin * 2));
+
+                lines.forEach((line, index) => {
+                    if (currentY + 12 > pageHeight - pageMargin) {
+                        pdfDoc.addPage();
+                        currentY = pageMargin;
+                    }
+                    pdfDoc.text(line, pageMargin, currentY);
+                    currentY += 12;
+                });
+            }
+            pdfDoc.save(`${filename}.pdf`);
+
+        } catch (error) {
+            console.error("Erro ao gerar o PDF a partir da imagem:", error);
+            alert("Ocorreu um erro ao gerar o arquivo PDF. Verifique o console.");
+        }
+    }
 
     // --- Lógica para Adicionar Nós de Entidade ---
 
@@ -1003,6 +1733,101 @@ document.addEventListener('DOMContentLoaded', () => {
                     loadFileInput.click();
                     break;
             }
+        }
+    });
+
+    // --- Lógica para Eventos de Toque ---
+    if (isTouchDevice) {
+        svg.addEventListener('touchstart', handleTouchStart, { passive: false });
+        svg.addEventListener('touchmove', handleTouchMove, { passive: false });
+        svg.addEventListener('touchend', handleTouchEnd);
+        svg.addEventListener('touchcancel', handleTouchEnd);
+    } else {
+        svg.addEventListener('mousedown', handleMouseDown);
+        svg.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        svg.addEventListener('wheel', handleMouseWheel);
+    }
+
+    // --- Lógica do Modal de Exportação ---
+
+    exportMapBtn.addEventListener('click', () => {
+        exportFilenameInput.value = 'meu_mapa_' + new Date().toISOString().slice(0, 10);
+        exportModal.style.display = 'flex';
+        handleFormatChange();
+    });
+
+    cancelExportBtn.addEventListener('click', () => {
+        exportModal.style.display = 'none';
+    });
+
+    exportModal.addEventListener('click', (e) => {
+        if (e.target === exportModal) {
+            exportModal.style.display = 'none';
+        }
+    });
+
+    function handleFormatChange() {
+        const selectedFormat = exportFormatSelect.value;
+        pdfOptionsDiv.style.display = selectedFormat === 'pdf' ? 'block' : 'none';
+        pngOptionsDiv.style.display = selectedFormat === 'png' ? 'block' : 'none';
+        svgOptionsDiv.style.display = selectedFormat === 'svg' ? 'block' : 'none';
+    }
+    exportFormatSelect.addEventListener('change', handleFormatChange);
+
+    addLogoCheckbox.addEventListener('change', (e) => {
+        logoOptionsDiv.style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    logoTypeSelect.addEventListener('change', (e) => {
+        logoUploadLabel.style.display = e.target.value === 'upload' ? 'inline-block' : 'none';
+    });
+
+    addTitleCheckbox.addEventListener('change', (e) => {
+        titleOptionsDiv.style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    confirmExportBtn.addEventListener('click', () => {
+        const filename = exportFilenameInput.value || 'mapa_exportado';
+        const format = exportFormatSelect.value;
+        const options = {
+            addLogo: addLogoCheckbox.checked,
+            logoType: logoTypeSelect.value,
+            logoFile: logoUploadInput.files[0],
+            addTitle: addTitleCheckbox.checked,
+            customTitle: document.getElementById('export-custom-title').value,
+            bgColor: document.getElementById('export-bg-color').value,
+            pngScale: parseInt(document.getElementById('export-png-scale').value, 10),
+            exportTheme: document.getElementById('export-theme').value
+        };
+
+        if (format === 'svg') {
+            generateCleanSvgString({bgColor: 'transparent'}).then(svgData => {
+                if (svgData) {
+                    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${filename}.svg`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+            });
+        } else if (format === 'pdf') {
+            exportAsPDF(filename, options);
+        } else if (format === 'png') {
+            exportAsPNG(filename, options);
+        }
+
+        exportModal.style.display = 'none';
+    });
+
+    // --- Aviso Antes de Sair da Página ---
+    window.addEventListener('beforeunload', (event) => {
+        if (state.isModified && !debugMode) {
+            event.preventDefault();
+            event.returnValue = 'Você tem alterações não salvas. Deseja realmente sair?';
+            return 'Você tem alterações não salvas. Deseja realmente sair?';
         }
     });
 

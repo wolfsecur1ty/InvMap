@@ -32,6 +32,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.2/dist/svg2pdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
     <header class="main-header">
@@ -43,7 +47,7 @@
             <a href="https://github.com/wolfsecur1ty/InvMap" target="_blank" class="github-link">
                 <i class="fab fa-github"></i> GitHub
             </a>
-            <span class="version-info">v1.1 (14/10/2025)</span>
+            <span class="version-info">v1.2 (28/10/2025)</span>
         </div>
     </header>
 
@@ -93,6 +97,9 @@
                 <label for="load-file-input" class="btn-secondary" title="Carregar Mapa de um Arquivo">
                     <i class="fas fa-folder-open"></i>
                 </label>
+                <button id="export-map-btn" title="Exportar Mapa">
+                    <i class="fas fa-file-export"></i>
+                </button>
             </div>
         </div>
 
@@ -154,53 +161,136 @@
         </div>
 
         <div id="save-options-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <h4>Salvar Mapa</h4>
-            <p>Como você deseja salvar seu arquivo?</p>
-            <div class="modal-actions" style="justify-content: center;">
-                <button type="button" id="save-unencrypted-btn">
-                    <i class="fas fa-file-alt"></i> Salvar como .json (Padrão)
-                </button>
-                <button type="button" id="save-encrypted-btn" class="btn-primary">
-                    <i class="fas fa-lock"></i> Salvar como .invmap (Criptografado)
-                </button>
+            <div class="modal-content">
+                <h4>Salvar Mapa</h4>
+                <p>Como você deseja salvar seu arquivo?</p>
+                <div class="modal-actions" style="justify-content: center;">
+                    <button type="button" id="save-unencrypted-btn">
+                        <i class="fas fa-file-alt"></i> Salvar como .json (Padrão)
+                    </button>
+                    <button type="button" id="save-encrypted-btn" class="btn-primary">
+                        <i class="fas fa-lock"></i> Salvar como .invmap (Criptografado)
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div id="save-password-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <h4>Proteger Arquivo com Senha</h4>
-            <p>Digite uma senha para criptografar seu mapa. Você precisará desta senha para abri-lo novamente.</p>
-            <div class="form-group">
-                <label for="save-password-input">Senha</label>
-                <input type="password" id="save-password-input" placeholder="••••••••••">
-            </div>
-            <div class="form-group">
-                <label for="save-password-confirm">Confirmar Senha</label>
-                <input type="password" id="save-password-confirm" placeholder="••••••••••">
-            </div>
-            <div class="modal-actions">
-                <button type="button" id="cancel-save-btn">Cancelar</button>
-                <button type="button" id="confirm-save-btn" class="btn-primary">Salvar e Criptografar</button>
+        <div id="save-password-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Proteger Arquivo com Senha</h4>
+                <p>Digite uma senha para criptografar seu mapa. Você precisará desta senha para abri-lo novamente.</p>
+                <div class="form-group">
+                    <label for="save-password-input">Senha</label>
+                    <input type="password" id="save-password-input" placeholder="••••••••••">
+                </div>
+                <div class="form-group">
+                    <label for="save-password-confirm">Confirmar Senha</label>
+                    <input type="password" id="save-password-confirm" placeholder="••••••••••">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="cancel-save-btn">Cancelar</button>
+                    <button type="button" id="confirm-save-btn" class="btn-primary">Salvar e Criptografar</button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div id="load-password-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <h4>Arquivo Criptografado</h4>
-            <p>Este arquivo está protegido. Por favor, digite a senha para descriptografar e carregar o mapa.</p>
-            <div class="form-group">
-                <label for="load-password-input">Senha</label>
-                <input type="password" id="load-password-input" placeholder="••••••••••">
-            </div>
-            <div class="modal-actions">
-                <button type="button" id="cancel-load-btn">Cancelar</button>
-                <button type="button" id="confirm-load-btn" class="btn-primary">Abrir Mapa</button>
+        <div id="load-password-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Arquivo Criptografado</h4>
+                <p>Este arquivo está protegido. Por favor, digite a senha para descriptografar e carregar o mapa.</p>
+                <div class="form-group">
+                    <label for="load-password-input">Senha</label>
+                    <input type="password" id="load-password-input" placeholder="••••••••••">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="cancel-load-btn">Cancelar</button>
+                    <button type="button" id="confirm-load-btn" class="btn-primary">Abrir Mapa</button>
+                </div>
             </div>
         </div>
-    </div>
+
+        <div id="export-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Exportar Mapa</h4>
+                <p>Escolha as opções para exportar seu mapa mental.</p>
+
+                <div class="export-options-form">
+                    <div class="form-group">
+                        <label for="export-filename">Nome do Arquivo</label>
+                        <input type="text" id="export-filename" value="meu_mapa">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="export-format">Formato</label>
+                        <select id="export-format">
+                            <option value="svg">SVG (Vetor)</option>
+                            <option value="png">PNG (Imagem)</option>
+                            <option value="pdf">PDF (Documento)</option>
+                            </select>
+                    </div>
+
+                    <hr class="form-divider">
+
+                    <div id="pdf-options" class="format-options">
+                        <h5>Opções de PDF</h5>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="export-add-logo" checked>
+                            <label for="export-add-logo">Incluir Logo na Página</label>
+                        </div>
+                        <div class="form-group sub-options" id="logo-options">
+                            <select id="export-logo-type">
+                                <option value="default">Logo Padrão (InvMap)</option>
+                                <option value="upload">Enviar minha Logo</option>
+                            </select>
+                            <input type="file" id="export-logo-upload" accept="image/*" style="display: none;">
+                            <label for="export-logo-upload" class="upload-button" style="display: none;">Escolher Logo...</label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="export-add-title">
+                            <label for="export-add-title">Incluir Título ao lado da Logo</label>
+                        </div>
+                        <div class="form-group sub-options" id="title-options" style="display:none;">
+                            <input type="text" id="export-custom-title" placeholder="Título Personalizado (Opcional)">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="export-bg-color">Cor de Fundo (PDF)</label>
+                            <input type="color" id="export-bg-color" value="#FFFFFF"> </div>
+                    </div>
+
+                    <div id="png-options" class="format-options" style="display: none;">
+                        <h5>Opções de PNG</h5>
+                        <div class="form-group">
+                            <label for="export-png-scale">Escala da Imagem</label>
+                            <select id="export-png-scale">
+                                <option value="1">1x (Tamanho Padrão)</option>
+                                <option value="2">2x (Alta Resolução)</option>
+                                <option value="3">3x (Muito Alta Resolução)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="export-theme">Tema da Imagem</label>
+                            <select id="export-theme">
+                                <option value="light">Claro</option>
+                                <option value="dark">Escuro</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="svg-options" class="format-options" style="display: none;">
+                        <h5>Opções de SVG</h5>
+                        <p style="font-size: 0.9em; color: var(--sniff-text-secondary);">Nenhuma opção adicional para SVG.</p>
+                    </div>
+
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancel-export-btn">Cancelar</button>
+                    <button type="button" id="confirm-export-btn" class="btn-primary">Exportar</button>
+                </div>
+            </div>
+        </div>
 
         <svg id="mindmap-svg" width="100%" height="100%">
             <defs id="svg-defs">

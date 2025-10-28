@@ -106,7 +106,8 @@ body {
 
 /* Botões de ícone */
 #controls button,
-#controls label {
+#controls label,
+#export-map-btn {
     width: 36px;
     height: 36px;
     border: none;
@@ -122,7 +123,8 @@ body {
 }
 
 #controls button:hover,
-#controls label:hover {
+#controls label:hover,
+#export-map-btn:hover {
     background-color: rgba(255, 255, 255, 0.1);
     color: var(--sniff-text-primary);
 }
@@ -560,6 +562,96 @@ body {
     font-size: 0.75rem;
     text-align: center;
     padding: 5px 0;
+}
+
+/* Estilos para o Modal de Exportação */
+.export-options-form .form-group {
+    margin-bottom: 18px;
+}
+
+.export-options-form label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+    color: var(--sniff-text-secondary);
+    font-weight: 500;
+}
+
+.export-options-form input[type="text"],
+.export-options-form select {
+    width: 100%;
+    background-color: var(--sniff-bg-dark);
+    border: 1px solid var(--sniff-border-color);
+    color: var(--sniff-text-primary);
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}
+
+.export-options-form input[type="text"]:focus,
+.export-options-form select:focus {
+    outline: none;
+    border-color: var(--sniff-accent);
+}
+
+.export-options-form input[type="color"] {
+    width: 100%;
+    height: 40px;
+    padding: 5px;
+    border: 1px solid var(--sniff-border-color);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--sniff-accent);
+}
+.checkbox-group label {
+    margin-bottom: 0;
+    font-weight: normal;
+}
+
+.sub-options {
+    padding-left: 28px;
+    margin-top: -10px;
+    margin-bottom: 18px;
+    border-left: 2px solid var(--sniff-border-color);
+    padding-top: 10px;
+}
+.sub-options .form-group {
+    margin-bottom: 10px;
+}
+.upload-button {
+    display: inline-block;
+    padding: 8px 15px;
+    background-color: #333;
+    color: var(--sniff-text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-top: 5px;
+}
+.upload-button:hover {
+    background-color: #444;
+}
+
+.form-divider {
+    border: none;
+    border-top: 1px solid var(--sniff-border-color);
+    margin: 25px 0;
+}
+
+.format-options h5 {
+    margin-bottom: 15px;
+    color: var(--sniff-accent);
 }
 
 /* Estilos para o modo de ligação de nós */
