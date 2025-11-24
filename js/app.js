@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // DEBUG
-    let debugMode = false;
+    let debugMode = true;
 
     // --- Seletores e Configuração Inicial ---
     const svg = document.getElementById('mindmap-svg');
@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const contextMenuContainer = document.getElementById('context-menu-container');
     const contextLinkBtn = document.getElementById('context-link-btn');
     const contextDeleteBtn = document.getElementById('context-delete-btn');
+    const contextColorBtn = document.getElementById('context-color-btn');
+    const contextSizeBtn = document.getElementById('context-size-btn');
+    const contextFontBtn = document.getElementById('context-font-btn');
+    const contextIconBtn = document.getElementById('context-icon-btn');
     const centerX = svg.clientWidth / 2;
     const centerY = svg.clientHeight / 2;
 
@@ -71,7 +75,89 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelEntityEditBtn = document.getElementById('cancel-entity-edit-btn');
     const entityEditPhotoInput = document.getElementById('entity-edit-photo-input');
     const entityEditPhotoPreview = document.getElementById('entity-edit-photo-preview');
+    const visualsModal = document.getElementById('visuals-modal');
+    const addVisualsBtn = document.getElementById('add-visuals-btn');
+    const cancelVisualsBtn = document.getElementById('cancel-visuals-btn');
+    const addStickerImgBtn = document.getElementById('add-sticker-img-btn');
+    const addStickerInput = document.getElementById('add-sticker-input');
+    const addStickerIconBtn = document.getElementById('add-sticker-icon-btn');
+    const iconSelectorModal = document.getElementById('icon-selector-modal');
+    const iconGrid = document.getElementById('icon-grid');
+    const cancelIconSelectBtn = document.getElementById('cancel-icon-select-btn');
+    const addStandaloneTextBtn = document.getElementById('add-standalone-text-btn');
+    const addShapeBtn = document.getElementById('add-shape-btn');
+    const addLineBtn = document.getElementById('add-line-btn');
+    const addArrowBtn = document.getElementById('add-arrow-btn');
+    const visualsLayer = document.getElementById('visuals-layer');
+    const handlesLayer = document.getElementById('handles-layer');
+    const colorPickerModal = document.getElementById('color-picker-modal');
+    const cancelColorBtn = document.getElementById('cancel-color-btn');
+    const customColorInput = document.getElementById('custom-color-input');
+    const colorPaletteOptions = document.querySelectorAll('.color-option');
+    const sizePickerModal = document.getElementById('size-picker-modal');
+    const sizeSlider = document.getElementById('size-slider');
+    const sizeValueDisplay = document.getElementById('size-value-display');
+    const cancelSizeBtn = document.getElementById('cancel-size-btn');
+    const fontPickerModal = document.getElementById('font-picker-modal');
+    const fontFamilySelect = document.getElementById('font-family-select');
+    const fontBoldBtn = document.getElementById('font-bold-btn');
+    const fontItalicBtn = document.getElementById('font-italic-btn');
+    const closeFontBtn = document.getElementById('close-font-btn');
 
+
+    // --- Sistema de Notificações ---
+    const notificationContainer = document.getElementById('notification-container');
+    const MAX_NOTIFICATIONS = 5;
+
+    function showNotification(message, type = 'info', duration = 4000) {
+        const currentToasts = notificationContainer.getElementsByClassName('toast');
+        if (currentToasts.length >= MAX_NOTIFICATIONS) {
+            currentToasts[0].remove();
+        }
+
+        const icons = {
+            info: 'fas fa-info-circle',
+            success: 'fas fa-check-circle',
+            warning: 'fas fa-exclamation-triangle',
+            error: 'fas fa-times-circle'
+        };
+    
+        const toast = document.createElement('div');
+        toast.classList.add('toast', type);
+        
+        toast.innerHTML = `
+            <i class="${icons[type]}"></i>
+            <span>${message}</span>
+            <div class="toast-progress">
+                <div class="toast-progress-bar"></div>
+            </div>
+        `;
+    
+        notificationContainer.appendChild(toast);
+        const progressBar = toast.querySelector('.toast-progress-bar');
+        progressBar.style.transition = `width ${duration}ms linear`;
+        setTimeout(() => {
+            progressBar.style.width = '0%';
+        }, 10);
+    
+        const removeToast = () => {
+            if (toast.parentElement) {
+                toast.style.animation = 'fadeOut 0.3s ease forwards';
+                toast.addEventListener('animationend', () => {
+                    if (toast.parentElement) {
+                        toast.remove();
+                    }
+                });
+            }
+        };
+    
+        const timeoutId = setTimeout(removeToast, duration);
+    
+        toast.addEventListener('click', () => {
+            clearTimeout(timeoutId);
+            removeToast();
+        });
+    }
 
     // --- Gerenciamento de Estado ---
     let state = {
@@ -87,7 +173,14 @@ document.addEventListener('DOMContentLoaded', () => {
         editingNodeId: null,
         tempPhotoData: null,
         linkingFromNodeId: null,
-        isModified: false
+        isModified: false,
+        visuals: {},
+        isDrawingVisual: null,
+        tempVisual: null,
+        selectedVisualId: null,
+        draggingHandle: null,
+        resizingShape: null,
+        justFinishedHandleDrag: false
     };
 
     // --- Funções Auxiliares de Coordenadas ---
@@ -110,6 +203,15 @@ document.addEventListener('DOMContentLoaded', () => {
             minY = Math.min(minY, node.y - halfHeight);
             maxX = Math.max(maxX, node.x + halfWidth);
             maxY = Math.max(maxY, node.y + halfHeight);
+            hasElements = true;
+        }
+
+        for (const visualId in state.visuals) {
+            const visual = state.visuals[visualId];
+            minX = Math.min(minX, visual.x1, visual.x2);
+            maxX = Math.max(maxX, visual.x1, visual.x2);
+            minY = Math.min(minY, visual.y1, visual.y2);
+            maxY = Math.max(maxY, visual.y1, visual.y2);
             hasElements = true;
         }
 
@@ -163,6 +265,82 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function removeLinkPreview() {
+        const existingPreview = document.getElementById('link-preview-path');
+        if (existingPreview) {
+            existingPreview.remove();
+        }
+    }
+
+    function updateLinkPreview(cursorX, cursorY, targetNode) {
+        if (!state.linkingFromNodeId) return;
+
+        const sourceNode = state.nodes[state.linkingFromNodeId];
+        if (!sourceNode) return;
+
+        let targetX, targetY;
+        let targetH = 0; // Altura para calcular âncora
+        
+        if (targetNode) {
+            targetX = targetNode.x;
+            targetY = targetNode.y;
+            targetH = targetNode.height;
+        } else {
+            const svgPoint = getSVGPoint(cursorX, cursorY);
+            targetX = svgPoint.x;
+            targetY = svgPoint.y;
+        }
+
+        let sourceAnchor = 'right';
+        let targetAnchor = 'left';
+
+        if (targetX < sourceNode.x) { sourceAnchor = 'left'; targetAnchor = 'right'; }
+        if (targetY < sourceNode.y - 50) { sourceAnchor = 'top'; targetAnchor = 'bottom'; }
+        if (targetY > sourceNode.y + 50) { sourceAnchor = 'bottom'; targetAnchor = 'top'; }
+
+        const startPoint = getAnchorPoint(sourceNode, sourceAnchor);
+        
+        // Se tiver nó alvo, calcula âncora real. Se for mouse, usa a posição direta.
+        let endPoint = { x: targetX, y: targetY };
+        if (targetNode) {
+            endPoint = getAnchorPoint(targetNode, targetAnchor);
+        }
+
+        // Calcula a curva Bezier
+        const sx = startPoint.x, sy = startPoint.y, tx = endPoint.x, ty = endPoint.y;
+        const dist = Math.sqrt(Math.pow(tx - sx, 2) + Math.pow(ty - sy, 2));
+        const curveFactor = Math.min(100, Math.max(20, dist * 0.4));
+
+        let cp1x = sx, cp1y = sy, cp2x = tx, cp2y = ty;
+
+        if (sourceAnchor === 'top') cp1y -= curveFactor;
+        if (sourceAnchor === 'bottom') cp1y += curveFactor;
+        if (sourceAnchor === 'left') cp1x -= curveFactor;
+        if (sourceAnchor === 'right') cp1x += curveFactor;
+
+        if (targetNode) {
+             if (targetAnchor === 'top') cp2y -= curveFactor;
+             if (targetAnchor === 'bottom') cp2y += curveFactor;
+             if (targetAnchor === 'left') cp2x -= curveFactor;
+             if (targetAnchor === 'right') cp2x += curveFactor;
+        } else {
+             if (targetX < sx) cp2x += curveFactor; else cp2x -= curveFactor;
+        }
+
+        const d = `M ${sx} ${sy} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${tx} ${ty}`;
+
+        // Desenha ou atualiza o path
+        let previewPath = document.getElementById('link-preview-path');
+        if (!previewPath) {
+            previewPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            previewPath.setAttribute("id", "link-preview-path");
+            previewPath.setAttribute("class", "link-preview-path");
+            previewPath.setAttribute("marker-end", "url(#arrowhead)");
+            edgesLayer.appendChild(previewPath);
+        }
+        previewPath.setAttribute("d", d);
+    }
+
     function calculateCurvedPath(edge) {
         const sourceNode = state.nodes[edge.source];
         const targetNode = state.nodes[edge.target];
@@ -170,8 +348,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const startPoint = getAnchorPoint(sourceNode, edge.sourceAnchor);
         const endPoint = getAnchorPoint(targetNode, edge.targetAnchor);
         const sx = startPoint.x, sy = startPoint.y, tx = endPoint.x, ty = endPoint.y;
+        const dist = Math.sqrt(Math.pow(tx - sx, 2) + Math.pow(ty - sy, 2));
+        const defaultCurve = 100;
+        const curveFactor = Math.min(defaultCurve, Math.max(20, dist * 0.4));
         let cp1x = sx, cp1y = sy, cp2x = tx, cp2y = ty;
-        const curveFactor = 100;
         if (edge.sourceAnchor === 'top')    { cp1y -= curveFactor; }
         if (edge.sourceAnchor === 'bottom') { cp1y += curveFactor; }
         if (edge.sourceAnchor === 'left')   { cp1x -= curveFactor; }
@@ -191,80 +371,131 @@ document.addEventListener('DOMContentLoaded', () => {
         if (nodeData.id === state.selectedNodeId) group.classList.add('selected');
         group.setAttribute("transform", `translate(${nodeData.x}, ${nodeData.y})`);
 
-        const rect = document.createElementNS(svgNS, "rect");
-        rect.setAttribute("class", "node-rect");
-        rect.setAttribute("width", nodeData.width);
-        rect.setAttribute("height", nodeData.height);
-        rect.setAttribute("x", -nodeData.width / 2);
-        rect.setAttribute("y", -nodeData.height / 2);
-
-        group.appendChild(rect);
-
-        const padding = 5;
-        const foreignObject = document.createElementNS(svgNS, "foreignObject");
-        foreignObject.setAttribute("width", nodeData.width - padding * 2);
-        foreignObject.setAttribute("height", nodeData.height - padding * 2);
-        foreignObject.setAttribute("x", -nodeData.width / 2 + padding);
-        foreignObject.setAttribute("y", -nodeData.height / 2 + padding);
-
-        const htmlContent = document.createElement("div");
-        htmlContent.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-
-        if (nodeData.type === 'image') {
-            htmlContent.className = "node-image-container";
-            htmlContent.innerHTML = `
-                <img src="${nodeData.imageData}" class="node-image" />
-                <span class="image-node-label">${nodeData.label}</span>
-                <button class="view-image-btn" title="Abrir imagem em nova aba">
-                    <i class="fas fa-expand-alt" style="pointer-events: none;"></i>
-                </button>
-            `;
-        } else if (nodeData.type === 'entity') {
-            htmlContent.className = "entity-node-container";
-            if (nodeData.entityType === 'person') {
-                htmlContent.innerHTML = `
-                    <div class="entity-photo">
-                        ${nodeData.photoData ? `<img src="${nodeData.photoData}" />` : '<i class="fas fa-user"></i>'}
-                    </div>
-                    <div class="entity-info">
-                        <div class="entity-info-header">
-                            <div class="entity-field" style="flex-grow: 1;">
-                                <span class="entity-field-label">Nome</span>
-                                <div class="entity-name">${nodeData.name}</div>
-                            </div>
-                            <div class="entity-field">
-                                <span class="entity-field-label">Idade</span>
-                                <div class="entity-age">${nodeData.age}</div>
-                            </div>
-                        </div>
-                        <div class="entity-field">
-                            <span class="entity-field-label">Detalhes</span>
-                            <div class="entity-details-box">${nodeData.details}</div>
-                        </div>
-                    </div>`;
-            } else { // Fallback para Empresa ou outros tipos
-                htmlContent.innerHTML = `
-                    <div class="entity-photo">
-                        ${nodeData.photoData ? `<img src="${nodeData.photoData}" />` : '<i class="fas fa-building"></i>'}
-                    </div>
-                    <div class="entity-info">
-                        <div class="entity-field">
-                            <span class="entity-field-label">Nome da Empresa</span>
-                            <div class="entity-name company-field-name">${nodeData.name}</div>
-                        </div>
-                        <div class="entity-field">
-                            <span class="entity-field-label">CNPJ</span>
-                            <div class="entity-details-box company-field-cnpj">${nodeData.cnpj}</div>
-                        </div>
-                    </div>`;
+        if (nodeData.type === 'sticker' || nodeData.type === 'icon-sticker') {
+            group.classList.add('sticker-node');
+        } else {
+            if (nodeData.type === 'text-sticker') {
+                group.classList.add('text-sticker-node');
+            } else if (nodeData.type === 'shape') {
+                group.classList.add('shape-node');
             }
-        } else { // Nó de texto padrão
-            htmlContent.className = "node-html-content";
-            htmlContent.innerHTML = `<span class="node-label">${nodeData.label.replace(/\n/g, '<br>')}</span><textarea class="node-editor-textarea" style="display: none;">${nodeData.label}</textarea>`;
+
+            const rect = document.createElementNS(svgNS, "rect");
+            rect.setAttribute("class", "node-rect");
+            rect.setAttribute("width", nodeData.width);
+            rect.setAttribute("height", nodeData.height);
+            rect.setAttribute("x", -nodeData.width / 2);
+            rect.setAttribute("y", -nodeData.height / 2);
+            if (nodeData.type === 'shape') {
+                const shapeColor = nodeData.color || 'var(--sniff-text-primary)';
+                rect.setAttribute("style", `stroke: ${shapeColor}; fill: transparent; stroke-width: 2px;`);
+            }
+            group.appendChild(rect);
         }
 
-        foreignObject.appendChild(htmlContent);
-        group.appendChild(foreignObject);
+        if (nodeData.type !== 'shape') {
+            const padding = 5;
+            const foreignObject = document.createElementNS(svgNS, "foreignObject");
+            foreignObject.setAttribute("width", nodeData.width - padding * 2);
+            foreignObject.setAttribute("height", nodeData.height - padding * 2);
+            foreignObject.setAttribute("x", -nodeData.width / 2 + padding);
+            foreignObject.setAttribute("y", -nodeData.height / 2 + padding);
+
+            const htmlContent = document.createElement("div");
+            htmlContent.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+            
+            switch (nodeData.type) {
+                case 'image':
+                    htmlContent.className = "node-image-container";
+                    htmlContent.innerHTML = `
+                        <img src="${nodeData.imageData}" class="node-image" />
+                        <span class="image-node-label">${nodeData.label}</span>
+                        <button class="view-image-btn" title="Abrir imagem em nova aba">
+                            <i class="fas fa-expand-alt" style="pointer-events: none;"></i>
+                        </button>
+                    `;
+                    break;
+                case 'entity':
+                    htmlContent.className = "entity-node-container";
+                    if (nodeData.entityType === 'person') {
+                        htmlContent.innerHTML = `
+                            <div class="entity-photo">
+                                ${nodeData.photoData ? `<img src="${nodeData.photoData}" />` : '<i class="fas fa-user"></i>'}
+                            </div>
+                            <div class="entity-info">
+                                <div class="entity-info-header">
+                                    <div class="entity-field" style="flex-grow: 1;">
+                                        <span class="entity-field-label">Nome</span>
+                                        <div class="entity-name">${nodeData.name}</div>
+                                    </div>
+                                    <div class="entity-field">
+                                        <span class="entity-field-label">Idade</span>
+                                        <div class="entity-age">${nodeData.age}</div>
+                                    </div>
+                                </div>
+                                <div class="entity-field">
+                                    <span class="entity-field-label">Detalhes</span>
+                                    <div class="entity-details-box">${nodeData.details}</div>
+                                </div>
+                            </div>`;
+                    } else { // Fallback para Empresa ou outros tipos
+                        htmlContent.innerHTML = `
+                            <div class="entity-photo">
+                                ${nodeData.photoData ? `<img src="${nodeData.photoData}" />` : '<i class="fas fa-building"></i>'}
+                            </div>
+                            <div class="entity-info">
+                                <div class="entity-field">
+                                    <span class="entity-field-label">Nome da Empresa</span>
+                                    <div class="entity-name company-field-name">${nodeData.name}</div>
+                                </div>
+                                <div class="entity-field">
+                                    <span class="entity-field-label">CNPJ</span>
+                                    <div class="entity-details-box company-field-cnpj">${nodeData.cnpj}</div>
+                                </div>
+                            </div>`;
+                    }
+                    break;
+                case 'sticker':
+                    htmlContent.className = "node-image-container sticker-image-container";
+                    htmlContent.innerHTML = `
+                        <img src="${nodeData.imageData}" class="node-image" />
+                    `;
+                    break;
+                case 'icon-sticker':
+                    htmlContent.className = "icon-sticker-container";
+                    const iconColor = nodeData.color || 'var(--sniff-text-primary)';
+                    const scale = nodeData.scale || 1;
+                    const iconFontSize = 40 * scale;
+                    htmlContent.innerHTML = `
+                        <i class="${nodeData.iconClass}" style="color: ${iconColor}; font-size: ${iconFontSize}px;"></i>
+                    `;
+                    break;
+                case 'text-sticker':
+                    htmlContent.className = "text-sticker-container";
+                    const textScale = nodeData.scale || 1;
+                    const fontFamily = nodeData.fontFamily || 'sans-serif';
+                    const fontWeight = nodeData.isBold ? 'bold' : '500';
+                    const fontStyle = nodeData.isItalic ? 'italic' : 'normal';
+                    htmlContent.setAttribute('style', `
+                        font-size: ${16 * textScale}px !important;
+                        font-family: ${fontFamily} !important;
+                        font-weight: ${fontWeight} !important;
+                        font-style: ${fontStyle} !important;
+                    `);
+
+                    htmlContent.innerHTML = `<span class="text-sticker-label">${nodeData.label.replace(/\n/g, '<br>')}</span><textarea class="text-sticker-textarea" style="display: none;">${nodeData.label}</textarea>`;
+                    break;
+                default:
+                    htmlContent.className = "node-html-content";
+                    htmlContent.innerHTML = `<span class="node-label">${nodeData.label.replace(/\n/g, '<br>')}</span><textarea class="node-editor-textarea" style="display: none;">${nodeData.label}</textarea>`;
+                    break;
+            }
+
+            
+
+            foreignObject.appendChild(htmlContent);
+            group.appendChild(foreignObject);
+        }
         nodesLayer.appendChild(group);
     }
 
@@ -348,6 +579,92 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function startTextStickerEditing(nodeGroup, nodeId, nodeData) {
+        hideNodeControls();
+
+        const foreignObject = nodeGroup.querySelector('foreignObject');
+        if (!foreignObject) return;
+        const label = foreignObject.querySelector('.text-sticker-label');
+        const textarea = foreignObject.querySelector('.text-sticker-textarea');
+        const rect = nodeGroup.querySelector('.node-rect');
+        if (!label || !textarea || !rect) return;
+
+        textarea.value = nodeData.label;
+        label.style.display = 'none';
+        textarea.style.display = 'block';
+        const fontFamily = nodeData.fontFamily || 'sans-serif';
+        const fontWeight = nodeData.isBold ? 'bold' : '500';
+        const fontStyle = nodeData.isItalic ? 'italic' : 'normal';
+
+        textarea.style.fontFamily = fontFamily;
+        textarea.style.fontWeight = fontWeight;
+        textarea.style.fontStyle = fontStyle;
+
+        textarea.focus();
+        textarea.select();
+
+        const onInput = () => {
+            textMeasurer.style.fontSize = '16px';
+            textMeasurer.style.fontFamily = fontFamily;
+            textMeasurer.style.fontWeight = fontWeight;
+            textMeasurer.style.fontStyle = fontStyle;
+
+            const lines = textarea.value.split('\n');
+            let longestLine = '';
+            lines.forEach(line => { if (line.length > longestLine.length) longestLine = line; });
+            textMeasurer.textContent = longestLine || ' ';
+
+            const newWidth = Math.max(100, textMeasurer.offsetWidth + 20);
+            nodeData.width = newWidth;
+            rect.setAttribute('width', newWidth);
+            rect.setAttribute('x', -newWidth / 2);
+            foreignObject.setAttribute('width', newWidth - 10);
+            foreignObject.setAttribute('x', -(newWidth / 2) + 5);
+
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight) + 'px';
+            const newHeight = Math.max(40, textarea.scrollHeight + 10);
+            nodeData.height = newHeight;
+            rect.setAttribute('height', newHeight);
+            rect.setAttribute('y', -newHeight / 2);
+            foreignObject.setAttribute('height', newHeight - 10);
+            foreignObject.setAttribute('y', -(newHeight / 2) + 5);
+        };
+        onInput();
+        textarea.addEventListener('input', onInput);
+
+        const finishEditing = (save) => {
+            textarea.removeEventListener('input', onInput);
+            if (save) {
+                nodeData.label = textarea.value;
+                setModifiedStatus(true);
+            }
+            if (label) {
+                label.innerHTML = nodeData.label.replace(/\n/g, '<br>');
+                label.style.display = 'block';
+            }
+            textarea.style.display = 'none';
+
+            render();
+
+            if(state.selectedNodeId === nodeId) {
+                showNodeControls(nodeData);
+            }
+        };
+
+        textarea.addEventListener('blur', () => finishEditing(true), { once: true });
+        textarea.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                finishEditing(true);
+                textarea.blur();
+            }
+            if (e.key === 'Escape') {
+                finishEditing(false);
+                textarea.blur();
+            }
+        });
+    }
+
     function renderEdge(edgeData) {
         const svgNS = "http://www.w3.org/2000/svg";
         const path = document.createElementNS(svgNS, "path");
@@ -357,11 +674,43 @@ document.addEventListener('DOMContentLoaded', () => {
         edgesLayer.appendChild(path);
     }
 
+    function renderVisual(visualData) {
+        const svgNS = "http://www.w3.org/2000/svg";
+        const visualPath = document.createElementNS(svgNS, "path");
+        const hitBoxPath = document.createElementNS(svgNS, "path");
+
+        const pathData = `M ${visualData.x1} ${visualData.y1} L ${visualData.x2} ${visualData.y2}`;
+        const strokeColor = visualData.color || '#4a4a52';
+
+        // Configura o path
+        visualPath.setAttribute("id", visualData.id);
+        visualPath.setAttribute("class", `visual-path visual-${visualData.type}`);
+        if(state.selectedVisualId === visualData.id) visualPath.classList.add('selected');
+        visualPath.setAttribute("d", pathData);
+        visualPath.style.stroke = strokeColor;
+        if (visualData.type === 'arrow') {
+            visualPath.setAttribute("marker-end", "url(#arrowhead)");
+        }
+
+        // Configura a hitbox
+        hitBoxPath.setAttribute("id", visualData.id + "-hitbox");
+        hitBoxPath.setAttribute("class", "visual-path-hitbox");
+        hitBoxPath.setAttribute("d", pathData);
+        hitBoxPath.dataset.visualId = visualData.id; 
+
+        visualsLayer.appendChild(hitBoxPath);
+        visualsLayer.appendChild(visualPath);
+    }
+
     function render() {
         edgesLayer.innerHTML = '';
         nodesLayer.innerHTML = '';
+        visualsLayer.innerHTML = '';
+        clearHandles();
         for (const edgeId in state.edges) renderEdge(state.edges[edgeId]);
+        for (const visualId in state.visuals) renderVisual(state.visuals[visualId]);
         for (const nodeId in state.nodes) renderNode(state.nodes[nodeId]);
+        if (state.selectedNodeId && state.nodes[state.selectedNodeId]?.type === 'shape') drawShapeHandles(state.selectedNodeId);
     }
 
     function dataURLtoBlob(dataurl) {
@@ -439,19 +788,160 @@ document.addEventListener('DOMContentLoaded', () => {
         contextMenuContainer.style.transform = `translate(-100%, -100%)`;
     }
 
+    function clearHandles() {
+        handlesLayer.innerHTML = '';
+    }
+
+    function drawLineHandles(visualId) {
+        clearHandles();
+        const visual = state.visuals[visualId];
+        if (!visual) return;
+
+        const svgNS = "http://www.w3.org/2000/svg";
+        
+        // Handle 1 (Início)
+        const handleStart = document.createElementNS(svgNS, "circle");
+        handleStart.setAttribute("id", "handle-start");
+        handleStart.setAttribute("class", "handle-circle");
+        handleStart.setAttribute("cx", visual.x1);
+        handleStart.setAttribute("cy", visual.y1);
+        handleStart.setAttribute("r", "5");
+        handleStart.dataset.visualId = visualId;
+        handlesLayer.appendChild(handleStart);
+        
+        // Handle 2 (Fim)
+        const handleEnd = document.createElementNS(svgNS, "circle");
+        handleEnd.setAttribute("id", "handle-end");
+        handleEnd.setAttribute("class", "handle-circle");
+        handleEnd.setAttribute("cx", visual.x2);
+        handleEnd.setAttribute("cy", visual.y2);
+        handleEnd.setAttribute("r", "5");
+        handleEnd.dataset.visualId = visualId;
+        handlesLayer.appendChild(handleEnd);
+    }
+
+    function drawShapeHandles(nodeId) {
+        clearHandles();
+        const node = state.nodes[nodeId];
+        if (!node || node.type !== 'shape') return;
+
+        const svgNS = "http://www.w3.org/2000/svg";
+        const halfW = node.width / 2;
+        const halfH = node.height / 2;
+
+        const corners = [
+            { type: 'nw', x: node.x - halfW, y: node.y - halfH, cursor: 'cursor-nw' }, // Superior Esquerdo
+            { type: 'ne', x: node.x + halfW, y: node.y - halfH, cursor: 'cursor-ne' }, // Superior Direito
+            { type: 'sw', x: node.x - halfW, y: node.y + halfH, cursor: 'cursor-sw' }, // Inferior Esquerdo
+            { type: 'se', x: node.x + halfW, y: node.y + halfH, cursor: 'cursor-se' }  // Inferior Direito
+        ];
+
+        corners.forEach(c => {
+            const rect = document.createElementNS(svgNS, "rect");
+            rect.setAttribute("x", c.x - 5);
+            rect.setAttribute("y", c.y - 5);
+            rect.setAttribute("width", 10);
+            rect.setAttribute("height", 10);
+            rect.setAttribute("class", `resize-handle ${c.cursor}`);
+            rect.dataset.handleType = c.type;
+            rect.dataset.nodeId = nodeId;
+            handlesLayer.appendChild(rect);
+        });
+    }
+
+    function updateShapeHandlesPosition(nodeId) {
+        const node = state.nodes[nodeId];
+        if (!node) return;
+
+        const halfW = node.width / 2;
+        const halfH = node.height / 2;
+
+        const positions = {
+            'nw': { x: node.x - halfW, y: node.y - halfH },
+            'ne': { x: node.x + halfW, y: node.y - halfH },
+            'sw': { x: node.x - halfW, y: node.y + halfH },
+            'se': { x: node.x + halfW, y: node.y + halfH }
+        };
+
+        for (const [type, pos] of Object.entries(positions)) {
+            const handle = handlesLayer.querySelector(`.resize-handle[data-handle-type="${type}"][data-node-id="${nodeId}"]`);
+            if (handle) {
+                handle.setAttribute('x', pos.x - 5);
+                handle.setAttribute('y', pos.y - 5);
+            }
+        }
+    }
+
     function showNodeControls(node) {
-        if (node) {
-            // Mostra os botões '+'
+        if (!node) return;
+
+        contextColorBtn.style.display = 'none';
+        contextSizeBtn.style.display = 'none';
+        contextFontBtn.style.display = 'none';
+        contextIconBtn.style.display = 'none';
+
+        if (node.type === 'sticker' || node.type === 'icon-sticker' || node.type === 'text-sticker' || node.type === 'shape') {
+            addControlsContainer.classList.remove('visible');
+            contextLinkBtn.style.display = 'none';
+            contextDeleteBtn.style.display = 'inline-flex';
+        } else {
             updateAddControlsPosition(node);
             addControlsContainer.classList.add('visible');
-            updateContextMenuPosition(node);
-            contextMenuContainer.classList.add('visible');
+            contextLinkBtn.style.display = 'inline-flex';
+            contextDeleteBtn.style.display = 'inline-flex';
         }
+
+        switch (node.type) {
+            case 'icon-sticker':
+                contextIconBtn.style.display = 'inline-flex';
+                contextSizeBtn.style.display = 'inline-flex';
+                contextColorBtn.style.display = 'inline-flex';
+                break;
+            case 'text-sticker':
+                contextFontBtn.style.display = 'inline-flex';
+                break;
+            case 'shape':
+                contextColorBtn.style.display = 'inline-flex';
+                break;
+        }
+
+        updateContextMenuPosition(node);
+        contextMenuContainer.classList.add('visible');
+    }
+
+    function showVisualControls(event) {
+        const x = event.clientX;
+        const y = event.clientY;
+
+        contextMenuContainer.style.left = `${x}px`;
+        contextMenuContainer.style.top = `${y - 15}px`;
+        contextMenuContainer.style.transform = `translate(-50%, -100%)`;
+
+        contextLinkBtn.style.display = 'none';
+        contextSizeBtn.style.display = 'none';
+        contextFontBtn.style.display = 'none';
+        contextIconBtn.style.display = 'none';
+
+        contextDeleteBtn.style.display = 'inline-flex';
+        contextColorBtn.style.display = 'inline-flex';
+
+        contextMenuContainer.classList.add('visible');
     }
 
     function hideNodeControls() {
         addControlsContainer.classList.remove('visible');
         contextMenuContainer.classList.remove('visible');
+        setTimeout(() => {
+            if (!contextMenuContainer.classList.contains('visible')) {
+                contextLinkBtn.style.display = 'inline-flex';
+                contextDeleteBtn.style.display = 'inline-flex';
+                
+                contextColorBtn.style.display = 'none';
+                contextSizeBtn.style.display = 'none';
+                contextFontBtn.style.display = 'none';
+                contextIconBtn.style.display = 'none';
+            }
+        }, 200);
     }
 
     let hideTimeout;
@@ -491,42 +981,67 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     svg.addEventListener('click', (e) => {
+        if (state.justFinishedHandleDrag) {
+            state.justFinishedHandleDrag = false;
+            return;
+        }
+
         const clickedNodeGroup = e.target.closest('.node-group');
+        const clickedVisualPath = e.target.closest('.visual-path-hitbox');
 
         // --- LÓGICA DO MODO DE LIGAÇÃO ---
-        if (state.linkingFromNodeId && clickedNodeGroup) {
-            const sourceNodeId = state.linkingFromNodeId;
-            const targetNodeId = clickedNodeGroup.id;
-
-            // Impede a ligação de um nó com ele mesmo
-            if (sourceNodeId === targetNodeId) {
-                // Cancela o modo de ligação
+        if (state.linkingFromNodeId && (clickedNodeGroup || clickedVisualPath)) {
+            // VERIFICAÇÃO 1: Clicou em um NÓ VISUAL (não conectável)
+            if (clickedNodeGroup && (clickedNodeGroup.classList.contains('sticker-node') || clickedNodeGroup.classList.contains('text-sticker-node') || clickedNodeGroup.classList.contains('shape-node'))) {
+                showNotification('Não é possível conectar a este elemento.', 'warning');
                 state.linkingFromNodeId = null;
                 svgContainer.classList.remove('linking-mode');
+                removeLinkPreview();
                 return;
             }
 
-            const newEdgeId = 'edge_' + Date.now();
-            // Lógica para determinar os pontos de ancoragem
-            const sourceNode = state.nodes[sourceNodeId];
-            const targetNode = state.nodes[targetNodeId];
-            let anchors = { source: 'right', target: 'left' };
-            if (targetNode.x < sourceNode.x) { anchors = { source: 'left', target: 'right' }; }
-            if (targetNode.y < sourceNode.y - 50) { anchors = { source: 'top', target: 'bottom' }; }
-            if (targetNode.y > sourceNode.y + 50) { anchors = { source: 'bottom', target: 'top' }; }
+            // VERIFICAÇÃO 2: Clicou em uma LINHA/SETA (não conectável)
+            if (clickedVisualPath) {
+                showNotification('Não é possível conectar a um elemento visual.', 'warning');
+                state.linkingFromNodeId = null;
+                svgContainer.classList.remove('linking-mode');
+                removeLinkPreview();
+                return;
+            }
 
-            state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
+            // VERIFICAÇÃO 3: Clicou em um NÓ VÁLIDO (para conectar)
+            if (clickedNodeGroup) {
+                const sourceNodeId = state.linkingFromNodeId;
+                const targetNodeId = clickedNodeGroup.id;
 
-            // Sai do modo de ligação e renderiza a nova conexão
-            setModifiedStatus(true);
-            state.linkingFromNodeId = null;
-            svgContainer.classList.remove('linking-mode');
-            render();
-            return;
+                if (sourceNodeId === targetNodeId) { // Impede auto-conexão
+                    state.linkingFromNodeId = null;
+                    svgContainer.classList.remove('linking-mode');
+                    return;
+                }
+
+                const newEdgeId = 'edge_' + Date.now();
+                const sourceNode = state.nodes[sourceNodeId];
+                const targetNode = state.nodes[targetNodeId];
+                let anchors = { source: 'right', target: 'left' };
+                if (targetNode.x < sourceNode.x) { anchors = { source: 'left', target: 'right' }; }
+                if (targetNode.y < sourceNode.y - 50) { anchors = { source: 'top', target: 'bottom' }; }
+                if (targetNode.y > sourceNode.y + 50) { anchors = { source: 'bottom', target: 'top' }; }
+
+                state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
+
+                setModifiedStatus(true);
+                state.linkingFromNodeId = null;
+                svgContainer.classList.remove('linking-mode');
+                removeLinkPreview();
+                render();
+                return;
+            }
         } else if (state.linkingFromNodeId) {
             // Se estava no modo de ligação e clicou no fundo, cancela
             state.linkingFromNodeId = null;
             svgContainer.classList.remove('linking-mode');
+            removeLinkPreview();
             return;
         }
 
@@ -546,22 +1061,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (state.selectedNodeId) {
             document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+            state.selectedNodeId = null;
         }
+        if (state.selectedVisualId) {
+            document.getElementById(state.selectedVisualId)?.classList.remove('selected');
+            state.selectedVisualId = null;
+        }
+        hideNodeControls();
+        clearHandles();
+        
         if (clickedNodeGroup) {
             state.selectedNodeId = clickedNodeGroup.id;
             state.hoveredNodeId = clickedNodeGroup.id;
             clickedNodeGroup.classList.add('selected');
-            showNodeControls(state.nodes[state.selectedNodeId]);
-        } else {
-            state.selectedNodeId = null;
-            state.hoveredNodeId = null;
-            hideNodeControls();
+            showNodeControls(state.nodes[state.selectedNodeId]); 
+            if (state.nodes[state.selectedNodeId].type === 'shape') drawShapeHandles(state.selectedNodeId);
+        } else if (clickedVisualPath) {
+            const visualId = clickedVisualPath.dataset.visualId;
+            state.selectedVisualId = visualId;
+            document.getElementById(visualId)?.classList.add('selected');
+            showVisualControls(e);
+            drawLineHandles(visualId);
         }
     });
 
     svg.addEventListener('dblclick', (e) => {
         const nodeGroup = e.target.closest('.node-group');
         if (!nodeGroup) return;
+        if (nodeGroup.classList.contains('sticker-node')) return;
 
         const nodeId = nodeGroup.id;
         const nodeData = state.nodes[nodeId];
@@ -581,28 +1108,208 @@ document.addEventListener('DOMContentLoaded', () => {
         if (nodeData && !nodeData.type) {
             startTextNodeEditing(nodeGroup, nodeId, nodeData);
             setModifiedStatus(true);
+        } else if (nodeData.type === 'text-sticker') {
+            startTextStickerEditing(nodeGroup, nodeId, nodeData);
+        } else if (nodeData.type === 'shape') {
+            // TODO ...
+            return;
         }
     });
 
     function handleMouseDown(e) {
-        const targetNodeGroup = e.target.closest('.node-group');
-        if (targetNodeGroup) {
+        if (state.isDrawingVisual) {
             e.preventDefault();
-            hideNodeControls();
+            const startPoint = getSVGPoint(e.clientX, e.clientY);
+            const tempId = 'visual_' + Date.now();
+
+            state.tempVisual = {
+                id: tempId,
+                type: state.isDrawingVisual,
+                x1: startPoint.x, y1: startPoint.y,
+                x2: startPoint.x, y2: startPoint.y
+            };
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("id", tempId);
+            path.setAttribute("class", `visual-path visual-${state.isDrawingVisual}`);
+            path.setAttribute("d", `M ${startPoint.x} ${startPoint.y} L ${startPoint.x} ${startPoint.y}`);
+            if (state.isDrawingVisual === 'arrow') {
+                path.setAttribute("marker-end", "url(#arrowhead)");
+            }
+            visualsLayer.appendChild(path);
+
             state.dragging = true;
-            state.draggedNodeId = targetNodeGroup.id;
+            return;
+        }
+
+        // Lógica de redimensionamento para shapes
+        const resizeHandle = e.target.closest('.resize-handle');
+        if (resizeHandle) {
+            e.preventDefault();
+            const nodeId = resizeHandle.dataset.nodeId;
+            const handleType = resizeHandle.dataset.handleType;
+            const node = state.nodes[nodeId];
             const mousePos = getSVGPoint(e.clientX, e.clientY);
-            const nodePos = state.nodes[state.draggedNodeId];
-            state.dragOffset.x = mousePos.x - nodePos.x;
-            state.dragOffset.y = mousePos.y - nodePos.y;
-            setModifiedStatus(true);
+            if (node) {
+                state.resizingShape = {
+                    nodeId: nodeId,
+                    handleType: handleType,
+                    startX: mousePos.x,
+                    startY: mousePos.y,
+                    startW: node.width,
+                    startH: node.height,
+                    startNodeX: node.x,
+                    startNodeY: node.y
+                };
+                state.dragging = true;
+                hideNodeControls();
+                return;
+            }
+    }
+
+        const handle = e.target.closest('.handle-circle');
+
+        if (handle) {
+            e.preventDefault();
+            const visualId = handle.dataset.visualId;
+            state.draggingHandle = {
+                visualId: visualId,
+                point: handle.id === 'handle-start' ? 'start' : 'end',
+                handleElement: handle
+            };
+            state.dragging = true;
+            hideNodeControls();
+            return;
+        }
+
+        const targetNodeGroup = e.target.closest('.node-group');
+        const targetVisualPath = e.target.closest('.visual-path-hitbox');
+
+        if (targetNodeGroup || targetVisualPath) {
+            e.preventDefault();
+            if (targetNodeGroup) {
+                hideNodeControls();
+                state.dragging = true;
+                state.draggedNodeId = targetNodeGroup.id;
+                const mousePos = getSVGPoint(e.clientX, e.clientY);
+                const nodePos = state.nodes[state.draggedNodeId];
+                state.dragOffset.x = mousePos.x - nodePos.x;
+                state.dragOffset.y = mousePos.y - nodePos.y;
+                setModifiedStatus(true);
+            }
         } else {
             state.panning = true;
             state.lastMousePos = { x: e.clientX, y: e.clientY };
+            clearHandles();
         }
     };
 
     function handleMouseMove(e) {
+        if (state.isDrawingVisual && state.tempVisual && state.dragging) {
+            e.preventDefault();
+            const currentPoint = getSVGPoint(e.clientX, e.clientY);
+            state.tempVisual.x2 = currentPoint.x;
+            state.tempVisual.y2 = currentPoint.y;
+
+            const path = document.getElementById(state.tempVisual.id);
+            if (path) {
+                path.setAttribute("d", `M ${state.tempVisual.x1} ${state.tempVisual.y1} L ${currentPoint.x} ${currentPoint.y}`);
+            }
+            return;
+        }
+
+        // Mover handles (Shape)
+        if (state.resizingShape && state.dragging) {
+            e.preventDefault();
+            const currentPoint = getSVGPoint(e.clientX, e.clientY);
+            const { nodeId, handleType, startX, startY, startW, startH, startNodeX, startNodeY } = state.resizingShape;
+            const node = state.nodes[nodeId];
+
+            const dx = currentPoint.x - startX;
+            const dy = currentPoint.y - startY;
+
+            let newWidth = startW;
+            let newHeight = startH;
+            let newX = startNodeX;
+            let newY = startNodeY;
+
+            if (handleType === 'se') {
+                newWidth = startW + dx;
+                newHeight = startH + dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'sw') {
+                newWidth = startW - dx;
+                newHeight = startH + dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'ne') {
+                newWidth = startW + dx;
+                newHeight = startH - dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'nw') {
+                newWidth = startW - dx;
+                newHeight = startH - dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            }
+
+            // Define tamanho mínimo
+            if (newWidth > 20 && newHeight > 20) {
+                node.width = newWidth;
+                node.height = newHeight;
+                node.x = newX;
+                node.y = newY;
+                
+                // Atualiza renderização do nó e dos handles
+                const nodeElement = document.getElementById(nodeId);
+                if (nodeElement) {
+                    nodeElement.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+                    const rect = nodeElement.querySelector('.node-rect');
+                    if (rect) {
+                        rect.setAttribute("width", node.width);
+                        rect.setAttribute("height", node.height);
+                        rect.setAttribute("x", -node.width / 2);
+                        rect.setAttribute("y", -node.height / 2);
+                    }
+                }
+                updateShapeHandlesPosition(nodeId);
+                setModifiedStatus(true);
+            }
+            return;
+        }
+
+        // Mover handles (Linha)
+        if (state.draggingHandle && state.dragging) {
+            e.preventDefault();
+            const currentPoint = getSVGPoint(e.clientX, e.clientY);
+            const { visualId, point, handleElement } = state.draggingHandle;
+            const visual = state.visuals[visualId];
+            const path = document.getElementById(visualId);
+            const hitbox = document.getElementById(visualId + "-hitbox");
+
+            if (!visual || !path || !hitbox || !handleElement) return;
+
+            if (point === 'start') {
+                visual.x1 = currentPoint.x;
+                visual.y1 = currentPoint.y;
+            } else {
+                visual.x2 = currentPoint.x;
+                visual.y2 = currentPoint.y;
+            }
+
+            // Atualiza o path, a hitbox e o handle
+            const newPathData = `M ${visual.x1} ${visual.y1} L ${visual.x2} ${visual.y2}`;
+            path.setAttribute("d", newPathData);
+            hitbox.setAttribute("d", newPathData);
+            handleElement.setAttribute("cx", currentPoint.x);
+            handleElement.setAttribute("cy", currentPoint.y);
+
+            setModifiedStatus(true);
+            return;
+        }
+
         if (state.dragging && state.draggedNodeId) {
             e.preventDefault();
             const node = state.nodes[state.draggedNodeId];
@@ -616,7 +1323,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (state.selectedNodeId === state.draggedNodeId) updateAddControlsPosition(node);
             }
             setModifiedStatus(true);
-        } else if (state.panning) {
+            return;
+        }
+
+        if (state.linkingFromNodeId) {
+            const targetNodeGroup = e.target.closest('.node-group');
+            if (targetNodeGroup && targetNodeGroup.id !== state.linkingFromNodeId) {
+                updateLinkPreview(e.clientX, e.clientY, state.nodes[targetNodeGroup.id]);
+            } else {
+                updateLinkPreview(e.clientX, e.clientY, null);
+            }
+        }
+        
+        if (state.panning) {
             const dx = e.clientX - state.lastMousePos.x;
             const dy = e.clientY - state.lastMousePos.y;
             state.cameraPos.x += dx;
@@ -628,6 +1347,28 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function handleMouseUp(e) {
+        if (state.isDrawingVisual && state.tempVisual) {
+            state.visuals[state.tempVisual.id] = { ...state.tempVisual };
+
+            state.isDrawingVisual = null;
+            state.tempVisual = null;
+            state.dragging = false;
+            svgContainer.classList.remove('drawing-mode');
+            setModifiedStatus(true);
+            render();
+            return;
+        }
+        if (state.resizingShape) {
+            state.resizingShape = null;
+            state.dragging = false;
+            return;
+        }
+        if (state.draggingHandle) {
+            state.draggingHandle = null;
+            state.dragging = false;
+            state.justFinishedHandleDrag = true;
+            return;
+        }
         const wasDragging = state.dragging;
         state.dragging = false;
         state.draggedNodeId = null;
@@ -673,6 +1414,71 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleTouchStart(e) {
         e.preventDefault();
         clearTimeout(dragStartTimeout);
+
+        if (state.isDrawingVisual) {
+            if (e.touches.length > 1) return;
+
+            const touch = e.touches[0];
+            const startPoint = getSVGPoint(touch.clientX, touch.clientY);
+            const tempId = 'visual_' + Date.now();
+            state.tempVisual = { id: tempId, type: state.isDrawingVisual, x1: startPoint.x, y1: startPoint.y, x2: startPoint.x, y2: startPoint.y };
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("id", tempId);
+            path.setAttribute("class", `visual-path visual-${state.isDrawingVisual}`);
+            path.setAttribute("d", `M ${startPoint.x} ${startPoint.y} L ${startPoint.x} ${startPoint.y}`);
+            if (state.isDrawingVisual === 'arrow') {
+                path.setAttribute("marker-end", "url(#arrowhead)");
+            }
+            visualsLayer.appendChild(path);
+
+            state.dragging = true;
+            return;
+        }
+
+        // Lógica para redimensionamento do Shape
+        const touch = e.touches[0];
+        const resizeHandle = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.resize-handle');
+        
+        if (resizeHandle) {
+            if (e.touches.length > 1) return;
+            
+            const nodeId = resizeHandle.dataset.nodeId;
+            const handleType = resizeHandle.dataset.handleType;
+            const node = state.nodes[nodeId];
+            const startPoint = getSVGPoint(touch.clientX, touch.clientY);
+
+            if (node) {
+                state.resizingShape = {
+                    nodeId: nodeId,
+                    handleType: handleType,
+                    startX: startPoint.x,
+                    startY: startPoint.y,
+                    startW: node.width,
+                    startH: node.height,
+                    startNodeX: node.x,
+                    startNodeY: node.y
+                };
+                state.dragging = true;
+                hideNodeControls();
+                return;
+            }
+        }
+
+        const handle = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY)?.closest('.handle-circle');
+
+        if (handle) {
+            if (e.touches.length > 1) return;
+            const visualId = handle.dataset.visualId;
+            state.draggingHandle = {
+                visualId: visualId,
+                point: handle.id === 'handle-start' ? 'start' : 'end',
+                handleElement: handle
+            };
+            state.dragging = true;
+            hideNodeControls();
+            return;
+        }
+
         if (e.touches.length === 2) {
             state.panning = false; // Garante que não está fazendo pan/drag
             state.dragging = false;
@@ -681,46 +1487,158 @@ document.addEventListener('DOMContentLoaded', () => {
             hideNodeControls();
         } else if (e.touches.length === 1) {
             const touch = e.touches[0];
-
             touchStartTime = Date.now();
             touchStartPos = { x: touch.clientX, y: touch.clientY };
+
             const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
+            const targetVisualPath = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.visual-path-hitbox'); //TODO 2
 
             // Verifica se tocou em nó ou no fundo
-            if (targetNodeGroup) {
-                state.draggedNodeId = targetNodeGroup.id;
-                const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
-                const nodePos = state.nodes[state.draggedNodeId];
-                state.dragOffset.x = touchPosSVG.x - nodePos.x;
-                state.dragOffset.y = touchPosSVG.y - nodePos.y;
+            if (targetNodeGroup || targetVisualPath) {
+                if (targetNodeGroup) {
+                    state.draggedNodeId = targetNodeGroup.id;
+                    const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
+                    const nodePos = state.nodes[state.draggedNodeId];
+                    state.dragOffset.x = touchPosSVG.x - nodePos.x;
+                    state.dragOffset.y = touchPosSVG.y - nodePos.y;
 
-                if (state.selectedNodeId !== targetNodeGroup.id) {
-                    if (state.selectedNodeId) {
-                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                    if (state.selectedNodeId !== targetNodeGroup.id) {
+                        if (state.selectedNodeId) {
+                            document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                        }
+                        state.selectedNodeId = targetNodeGroup.id;
+                        targetNodeGroup.classList.add('selected');
                     }
-                    state.selectedNodeId = targetNodeGroup.id;
-                    targetNodeGroup.classList.add('selected');
+                    state.hoveredNodeId = targetNodeGroup.id;
+
+                    dragStartTimeout = setTimeout(() => {
+                        if (state.draggedNodeId) {
+                            state.dragging = true;
+                            hideNodeControls();
+                        }
+                    }, DRAG_START_DELAY);
+                    setModifiedStatus(true);
                 }
-                state.hoveredNodeId = targetNodeGroup.id;
-
-                dragStartTimeout = setTimeout(() => {
-                    if (state.draggedNodeId) {
-                        state.dragging = true;
-                        hideNodeControls();
-                    }
-                }, DRAG_START_DELAY);
-                setModifiedStatus(true);
             } else {
                 // Inicia o Pan
                 state.panning = true;
                 lastTouchPos = { x: touch.clientX, y: touch.clientY };
                 hideNodeControls();
+                clearHandles();
             }
         }
     }
 
     function handleTouchMove(e) {
         e.preventDefault();
+        if (state.isDrawingVisual && state.tempVisual && state.dragging) {
+            if (e.touches.length > 1) return;
+
+            const touch = e.touches[0];
+            const currentPoint = getSVGPoint(touch.clientX, touch.clientY);
+            state.tempVisual.x2 = currentPoint.x;
+            state.tempVisual.y2 = currentPoint.y;
+
+            const path = document.getElementById(state.tempVisual.id);
+            if (path) {
+                path.setAttribute("d", `M ${state.tempVisual.x1} ${state.tempVisual.y1} L ${currentPoint.x} ${currentPoint.y}`);
+            }
+            return;
+        }
+
+        // Mover handles (Shapes)
+        if (state.resizingShape && state.dragging) {
+            if (e.touches.length > 1) return;
+
+            const touch = e.touches[0];
+            const currentPoint = getSVGPoint(touch.clientX, touch.clientY);
+            const { nodeId, handleType, startX, startY, startW, startH, startNodeX, startNodeY } = state.resizingShape;
+            
+            const dx = currentPoint.x - startX;
+            const dy = currentPoint.y - startY;
+
+            let newWidth = startW;
+            let newHeight = startH;
+            let newX = startNodeX;
+            let newY = startNodeY;
+
+            if (handleType === 'se') {
+                newWidth = startW + dx;
+                newHeight = startH + dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'sw') {
+                newWidth = startW - dx;
+                newHeight = startH + dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'ne') {
+                newWidth = startW + dx;
+                newHeight = startH - dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            } else if (handleType === 'nw') {
+                newWidth = startW - dx;
+                newHeight = startH - dy;
+                newX = startNodeX + dx / 2;
+                newY = startNodeY + dy / 2;
+            }
+
+            if (newWidth > 20 && newHeight > 20) {
+                const node = state.nodes[nodeId];
+                node.width = newWidth;
+                node.height = newHeight;
+                node.x = newX;
+                node.y = newY;
+                
+                const nodeElement = document.getElementById(nodeId);
+                if (nodeElement) {
+                    nodeElement.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+                    const rect = nodeElement.querySelector('.node-rect');
+                    if (rect) {
+                        rect.setAttribute("width", node.width);
+                        rect.setAttribute("height", node.height);
+                        rect.setAttribute("x", -node.width / 2);
+                        rect.setAttribute("y", -node.height / 2);
+                    }
+                }
+                updateShapeHandlesPosition(nodeId);
+                setModifiedStatus(true);
+            }
+            return;
+        }
+
+        // Mover handles (Linhas)
+        if (state.draggingHandle && state.dragging) {
+            e.preventDefault();
+            if (e.touches.length > 1) return;
+
+            const touch = e.touches[0];
+            const currentPoint = getSVGPoint(touch.clientX, touch.clientY);
+            const { visualId, point, handleElement } = state.draggingHandle;
+            const visual = state.visuals[visualId];
+            const path = document.getElementById(visualId);
+            const hitbox = document.getElementById(visualId + "-hitbox");
+
+            if (!visual || !path || !hitbox || !handleElement) return;
+
+            if (point === 'start') {
+                visual.x1 = currentPoint.x;
+                visual.y1 = currentPoint.y;
+            } else {
+                visual.x2 = currentPoint.x;
+                visual.y2 = currentPoint.y;
+            }
+
+            const newPathData = `M ${visual.x1} ${visual.y1} L ${visual.x2} ${visual.y2}`;
+            path.setAttribute("d", newPathData);
+            hitbox.setAttribute("d", newPathData);
+            handleElement.setAttribute("cx", currentPoint.x);
+            handleElement.setAttribute("cy", currentPoint.y);
+
+            setModifiedStatus(true);
+            return;
+        }
 
         if (e.touches.length === 2 && initialPinchDistance !== null && initialPinchCenter !== null) {
             // --- LÓGICA DO PINCH-ZOOM ---
@@ -799,6 +1717,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleTouchEnd(e) {
+        if (state.isDrawingVisual && state.tempVisual) {
+            state.visuals[state.tempVisual.id] = { ...state.tempVisual };
+
+            state.isDrawingVisual = null;
+            state.tempVisual = null;
+            state.dragging = false;
+            svgContainer.classList.remove('drawing-mode');
+            setModifiedStatus(true);
+            render();
+            lastTapTime = 0; 
+            touchStartPos = { x: 0, y: 0 };
+            return;
+        }
+
+        if (state.resizingShape) {
+            state.resizingShape = null;
+            state.dragging = false;
+            return;
+        }
+
+        if (state.draggingHandle) {
+            state.draggingHandle = null;
+            state.dragging = false;
+            state.justFinishedHandleDrag = true;
+            return;
+        }
+
         clearTimeout(dragStartTimeout);
         dragStartTimeout = null;
 
@@ -812,15 +1757,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const dy = touch.clientY - touchStartPos.y;
         const movementDistance = Math.sqrt(dx * dx + dy * dy);
 
-        // Verifica se foi um Tap válido: curta duração, pouco movimento, não era pinch
         const isTap = touchDuration < DOUBLE_TAP_DELAY && movementDistance < MAX_TAP_MOVEMENT && initialPinchDistance === null;
 
-        // Guarda os estados ANTES de resetar para saber o que aconteceu
         const wasDragging = state.dragging;
         const wasPanning = state.panning;
         const wasPinching = initialPinchDistance !== null;
 
-        // --- Reseta todos os estados de interação ---
         state.dragging = false;
         state.draggedNodeId = null;
         state.panning = false;
@@ -828,14 +1770,52 @@ document.addEventListener('DOMContentLoaded', () => {
         initialPinchCenter = null;
         lastTouchPos = { x: 0, y: 0 };
 
-        // --- LÓGICA DE TAP E DOUBLE-TAP ---
         if (isTap) {
             const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
+
+            if (state.linkingFromNodeId) {
+                if (targetNodeGroup) {
+                    if (targetNodeGroup.classList.contains('sticker-node') || targetNodeGroup.classList.contains('text-sticker-node') || targetNodeGroup.classList.contains('shape-node')) {
+                        // Sticker selecionado, não faz nada
+                    } else {
+                        // Usuário tocou em um node
+                        const sourceNodeId = state.linkingFromNodeId;
+                        const targetNodeId = targetNodeGroup.id;
+
+                        if (sourceNodeId !== targetNodeId) {
+                            const newEdgeId = 'edge_' + Date.now();
+                            const sourceNode = state.nodes[sourceNodeId];
+                            const targetNode = state.nodes[targetNodeId];
+                            let anchors = { source: 'right', target: 'left' };
+                            if (targetNode.x < sourceNode.x) { anchors = { source: 'left', target: 'right' }; }
+                            if (targetNode.y < sourceNode.y - 50) { anchors = { source: 'top', target: 'bottom' }; }
+                            if (targetNode.y > sourceNode.y + 50) { anchors = { source: 'bottom', target: 'top' }; }
+
+                            state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
+                            setModifiedStatus(true);
+                            render();
+                        }
+                    }
+                } else {
+                    // Usuário tocou no fundo
+                    // Não faz nada, apenas sai do modo de ligação
+                }
+
+                // Sai do modo de ligação e reseta o timer do tap
+                state.linkingFromNodeId = null;
+                svgContainer.classList.remove('linking-mode');
+                removeLinkPreview();
+                lastTapTime = 0; 
+
+                if(state.selectedNodeId) showNodeControls(state.nodes[state.selectedNodeId]);
+                
+                return;
+            }
+
             const timeSinceLastTap = currentTime - lastTapTime;
 
             if (timeSinceLastTap < DOUBLE_TAP_DELAY && targetNodeGroup) {
                 // --- É DOUBLE-TAP ---
-                //console.log("Double Tap detected on node:", targetNodeGroup.id); // Debug
                 const nodeId = targetNodeGroup.id;
                 const nodeData = state.nodes[nodeId];
 
@@ -847,36 +1827,54 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.open(url);
                 } else if (nodeData && !nodeData.type) {
                     startTextNodeEditing(targetNodeGroup, nodeId, nodeData);
+                } else if (nodeData.type === 'text-sticker') {
+                    startTextStickerEditing(targetNodeGroup, nodeId, nodeData);
+                } else if (nodeData.type === 'shape') {
+                    // TODO ...
+                    return;
                 }
                 lastTapTime = 0; // Reseta para evitar triple-tap
             } else {
                 // --- É SINGLE-TAP ---
-                //console.log("Single Tap detected"); // Debug
+                const targetVisualPath = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.visual-path-hitbox');
+
+                // Limpa seleções anteriores
+                if (state.selectedNodeId) {
+                    document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+                    state.selectedNodeId = null;
+                }
+                if (state.selectedVisualId) {
+                    document.getElementById(state.selectedVisualId)?.classList.remove('selected');
+                    state.selectedVisualId = null;
+                }
+                hideNodeControls();
+                clearHandles();
+
                 if (targetNodeGroup) {
                     state.selectedNodeId = targetNodeGroup.id;
                     state.hoveredNodeId = targetNodeGroup.id;
                     targetNodeGroup.classList.add('selected');
                     showNodeControls(state.nodes[state.selectedNodeId]);
+                    if (state.nodes[state.selectedNodeId].type === 'shape') drawShapeHandles(state.selectedNodeId);
+                } else if (targetVisualPath) {
+                    const visualId = targetVisualPath.dataset.visualId;
+                    state.selectedVisualId = visualId;
+                    document.getElementById(visualId)?.classList.add('selected');
+                    const touchCoords = e.changedTouches[0];
+                    showVisualControls({ clientX: touchCoords.clientX, clientY: touchCoords.clientY });
+                    drawLineHandles(visualId);
                 } else {
-                    // Tocou no fundo, desmarca
-                    if (state.selectedNodeId) {
-                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
-                        state.selectedNodeId = null;
-                    }
-                    state.hoveredNodeId = null;
+                    // Tocou no fundo
                     hideNodeControls();
                 }
                 lastTapTime = currentTime;
             }
-        } else { // Não foi um tap válido (foi drag, pan, pinch ou toque longo)
+        } else { // Não foi um tap válido (foi drag, pan, etc)
              if ((wasDragging || wasPanning || wasPinching) && state.selectedNodeId) {
                  showNodeControls(state.nodes[state.selectedNodeId]);
              } else if (state.selectedNodeId && !wasDragging && !wasPanning && !wasPinching) {
-                 // Se foi um toque longo sem mover (que não é tap),
-                 // e tinha um nó selecionado (pelo touchstart), mostra os controles dele.
                   showNodeControls(state.nodes[state.selectedNodeId]);
              } else if (!state.selectedNodeId){
-                 // Se terminou uma interação e nada está selecionado, garante que controles estão escondidos
                  hideNodeControls();
              }
              lastTapTime = 0; // Reseta se não foi tap
@@ -884,90 +1882,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         touchStartPos = { x: 0, y: 0 };
 
-        // Se ainda houver outros dedos, reseta o estado de pinch
         if (e.touches.length > 0) {
              initialPinchDistance = null;
              initialPinchCenter = null;
         }
-    }
-
-    function handleTouchEnd(e) {
-        const touch = e.changedTouches[0];
-        const currentTime = Date.now();
-        const touchDuration = currentTime - touchStartTime;
-
-        const dx = touch.clientX - touchStartPos.x;
-        const dy = touch.clientY - touchStartPos.y;
-        const movementDistance = Math.sqrt(dx * dx + dy * dy);
-
-        // Verifica se foi um Tap válido (curta duração, pouco movimento, não estava fazendo pinch)
-        const isTap = touchDuration < DOUBLE_TAP_DELAY && movementDistance < MAX_TAP_MOVEMENT && initialPinchDistance === null && !state.dragging && !state.panning;
-
-        // --- Reseta estados de interação ---
-        const wasDragging = state.dragging;
-        const wasPanning = state.panning;
-        const wasPinching = initialPinchDistance !== null;
-
-        state.dragging = false;
-        state.draggedNodeId = null;
-        state.panning = false;
-        initialPinchDistance = null;
-        initialPinchCenter = null;
-        lastTouchPos = { x: 0, y: 0 };
-
-        // --- LÓGICA DE TAP E DOUBLE-TAP ---
-        if (isTap) {
-            const targetNodeGroup = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.node-group');
-            const timeSinceLastTap = currentTime - lastTapTime;
-
-            if (timeSinceLastTap < DOUBLE_TAP_DELAY && targetNodeGroup) {
-                // --- É DOUBLE-TAP ---
-                const nodeId = targetNodeGroup.id;
-                const nodeData = state.nodes[nodeId];
-
-                if (nodeData && nodeData.type === 'entity') {
-                    openEntityEditModal(nodeData);
-                } else if (nodeData && nodeData.type === 'image') {
-                    const blob = dataURLtoBlob(nodeData.imageData);
-                    const url = URL.createObjectURL(blob);
-                    window.open(url);
-                } else if (nodeData && !nodeData.type) {
-                    startTextNodeEditing(targetNodeGroup, nodeId, nodeData);
-                }
-                lastTapTime = 0; // Reseta para evitar triple-tap
-            } else {
-                // --- É SINGLE-TAP ---
-                if (targetNodeGroup) {
-                    if (state.selectedNodeId !== targetNodeGroup.id) {
-                        if (state.selectedNodeId) {
-                            document.getElementById(state.selectedNodeId)?.classList.remove('selected');
-                        }
-                        state.selectedNodeId = targetNodeGroup.id;
-                        targetNodeGroup.classList.add('selected');
-                    }
-                    state.hoveredNodeId = targetNodeGroup.id;
-                    showNodeControls(state.nodes[state.selectedNodeId]);
-                } else {
-                    // Tocou no fundo, desmarca
-                    if (state.selectedNodeId) {
-                        document.getElementById(state.selectedNodeId)?.classList.remove('selected');
-                        state.selectedNodeId = null;
-                    }
-                    state.hoveredNodeId = null;
-                    hideNodeControls();
-                }
-                lastTapTime = currentTime;
-            }
-        } else {
-            // Se não foi tap (foi drag, pan ou pinch), apenas mostra controles se necessário
-            if (wasDragging || wasPanning || wasPinching) {
-                const activeNode = state.nodes[state.selectedNodeId || state.hoveredNodeId];
-                if (activeNode) showNodeControls(activeNode);
-            }
-            lastTapTime = 0;
-        }
-
-        touchStartPos = { x: 0, y: 0 };
     }
 
     const addRootNodeBtn = document.getElementById('add-root-node-btn');
@@ -1021,7 +1939,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function startLinkingMode() {
         const sourceNodeId = state.hoveredNodeId || state.selectedNodeId;
         if (!sourceNodeId) {
-            alert('Por favor, selecione um nó de origem primeiro.');
+            showNotification('Por favor, selecione um nó de origem primeiro.', 'warning');
+            return;
+        }
+        const sourceNode = state.nodes[sourceNodeId];
+        if (sourceNode && (sourceNode.type === 'sticker' || sourceNode.type === 'icon-sticker' || sourceNode.type === 'text-sticker' || sourceNode.type === 'shape')) {
+            showNotification('Stickers não podem ser usados para iniciar uma conexão.', 'error');
             return;
         }
         state.linkingFromNodeId = sourceNodeId;
@@ -1031,26 +1954,33 @@ document.addEventListener('DOMContentLoaded', () => {
     linkNodeBtn.addEventListener('click', startLinkingMode);
     contextLinkBtn.addEventListener('click', startLinkingMode);
 
-    function deleteSelectedNode() {
+    function deleteSelectedItem() {
         const nodeIdToRemove = state.hoveredNodeId || state.selectedNodeId;
-        if (!nodeIdToRemove || nodeIdToRemove === "root") {
-            alert('O Tópico Principal não pode ser removido.');
+        const visualIdToRemove = state.selectedVisualId;
+        if (nodeIdToRemove && nodeIdToRemove !== "root") {
+            delete state.nodes[nodeIdToRemove];
+            for (const edgeId in state.edges) {
+                if (state.edges[edgeId].source === nodeIdToRemove || state.edges[edgeId].target === nodeIdToRemove) {
+                    delete state.edges[edgeId];
+                }
+            }
+            if (state.selectedNodeId === nodeIdToRemove) state.selectedNodeId = null;
+            state.hoveredNodeId = null;
+            hideNodeControls();
+            setModifiedStatus(true);
+            render();
+        } else if (visualIdToRemove) {
+            delete state.visuals[visualIdToRemove];
+            state.selectedVisualId = null;
+            setModifiedStatus(true);
+            render();
+        } else if (nodeIdToRemove === "root") {
+            showNotification('O nó principal não pode ser removido.', 'error');
             return;
         }
-        delete state.nodes[nodeIdToRemove];
-        for (const edgeId in state.edges) {
-            if (state.edges[edgeId].source === nodeIdToRemove || state.edges[edgeId].target === nodeIdToRemove) {
-                delete state.edges[edgeId];
-            }
-        }
-        if (state.selectedNodeId === nodeIdToRemove) state.selectedNodeId = null;
-        state.hoveredNodeId = null;
-        hideNodeControls();
-        setModifiedStatus(true);
-        render();
     }
-    removeNodeBtn.addEventListener('click', deleteSelectedNode);
-    contextDeleteBtn.addEventListener('click', deleteSelectedNode);
+    removeNodeBtn.addEventListener('click', deleteSelectedItem);
+    contextDeleteBtn.addEventListener('click', deleteSelectedItem);
 
     saveFileBtn.addEventListener('click', () => {
         saveOptionsModal.style.display = 'flex';
@@ -1066,7 +1996,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Botão: Salvar como .json (sem criptografia)
     saveUnencryptedBtn.addEventListener('click', () => {
-        const dataToSave = { nodes: state.nodes, edges: state.edges };
+        const dataToSave = { nodes: state.nodes, edges: state.edges, visuals: state.visuals };
         const jsonString = JSON.stringify(dataToSave, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1098,11 +2028,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const confirmPassword = document.getElementById('save-password-confirm').value;
 
         if (!password || password !== confirmPassword) {
-            alert('As senhas não coincidem ou estão em branco.');
+            showNotification('As senhas não coincidem ou estão em branco.', 'error');
             return;
         }
 
-        const jsonString = JSON.stringify({ nodes: state.nodes, edges: state.edges });
+        const jsonString = JSON.stringify({ nodes: state.nodes, edges: state.edges, visuals: state.visuals });
         const encryptedData = CryptoJS.AES.encrypt(jsonString, password).toString();
 
         const blob = new Blob([encryptedData], { type: 'text/plain' });
@@ -1127,7 +2057,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Tenta analisar como JSON. Se funcionar, é um arquivo não criptografado.
                 const data = JSON.parse(fileContent);
                 if (data && data.nodes && data.edges) {
-                    state = { ...state, nodes: data.nodes, edges: data.edges, selectedNodeId: null, hoveredNodeId: null, cameraPos: { x: 0, y: 0 }, zoom: 1 };
+                    state = { ...state, nodes: data.nodes, edges: data.edges, visuals: data.visuals || {} , selectedNodeId: null, hoveredNodeId: null, cameraPos: { x: 0, y: 0 }, zoom: 1 };
                     hideNodeControls();
                     updateCameraTransform();
                     render();
@@ -1163,7 +2093,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = JSON.parse(decryptedData);
             if (data && data.nodes && data.edges) {
-                state = { ...state, nodes: data.nodes, edges: data.edges, selectedNodeId: null, hoveredNodeId: null, cameraPos: { x: 0, y: 0 }, zoom: 1 };
+                state = { ...state, nodes: data.nodes, edges: data.edges, visuals: data.visuals || {}, selectedNodeId: null, hoveredNodeId: null, cameraPos: { x: 0, y: 0 }, zoom: 1 };
                 hideNodeControls();
                 updateCameraTransform();
                 render();
@@ -1171,7 +2101,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else { throw new Error('Formato de arquivo inválido.'); }
         } catch (error) {
             console.error("Erro ao carregar o arquivo:", error);
-            alert('Não foi possível abrir o mapa. Verifique a senha ou o formato do arquivo.');
+            showNotification('Não foi possível abrir o mapa. Verifique a senha ou o formato do arquivo.', 'error');
         } finally {
             cancelLoadBtn.click();
         }
@@ -1195,6 +2125,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 const newHeight = img.height * scale;
                 state.nodes[newNodeId] = {
                     id: newNodeId, type: 'image',
+                    x: centerSVGPoint.x, y: centerSVGPoint.y,
+                    width: newWidth, height: newHeight,
+                    label: file.name.substring(0, 40),
+                    imageData: imageDataUrl
+                };
+                render();
+            };
+            img.src = imageDataUrl;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+        setModifiedStatus(true);
+    });
+
+    addStickerInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const imageDataUrl = event.target.result;
+            const img = new Image();
+            img.onload = () => {
+                const centerSVGPoint = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
+                const newNodeId = 'node_' + Date.now();
+                const maxWidth = 150; // Testar
+                const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+                const newWidth = img.width * scale;
+                const newHeight = img.height * scale;
+                state.nodes[newNodeId] = {
+                    id: newNodeId,
+                    type: 'sticker',
                     x: centerSVGPoint.x, y: centerSVGPoint.y,
                     width: newWidth, height: newHeight,
                     label: file.name.substring(0, 40),
@@ -1281,6 +2242,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         svgClone.querySelectorAll('.arrowhead-path').forEach(path => {
             path.setAttribute('style', `fill: ${edgeColor};`);
+        });
+
+        // Aplica estilos às Linhas/Setas Visuais
+        svgClone.querySelectorAll('.visual-path').forEach(path => {
+            path.setAttribute('style', `stroke: ${edgeColor}; stroke-width: 1.5px; fill: none; stroke-dasharray: 5, 5;`);
+            if (path.classList.contains('visual-arrow')) {
+                path.style.markerEnd = 'url(#arrowhead)';
+            }
         });
 
         svgClone.setAttribute("xmlns", svgNS);
@@ -1371,7 +2340,7 @@ document.addEventListener('DOMContentLoaded', () => {
             a.download = `${filename}.png`;
             a.click();
         } else {
-            alert("Ocorreu um erro ao gerar a imagem PNG.");
+            showNotification('Ocorreu um erro ao gerar a imagem PNG.', 'error');
         }
     }
 
@@ -1420,7 +2389,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pngUrl = await generatePngDataUrl(pngOptions);
 
         if (!pngUrl) {
-            alert("Erro ao gerar a imagem base para o PDF.");
+            showNotification('Erro ao gerar a imagem base para o PDF.', 'error');
             return;
         }
 
@@ -1529,7 +2498,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error("Erro ao gerar o PDF a partir da imagem:", error);
-            alert("Ocorreu um erro ao gerar o arquivo PDF. Verifique o console.");
+            showNotification('Ocorreu um erro ao gerar o arquivo PDF.', 'error');
         }
     }
 
@@ -1686,7 +2655,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'Delete':
             case 'Backspace':
                 e.preventDefault();
-                deleteSelectedNode();
+                deleteSelectedItem();
                 break;
             case 'Tab':
                 e.preventDefault();
@@ -1712,6 +2681,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (state.linkingFromNodeId) {
                     state.linkingFromNodeId = null;
                     svgContainer.classList.remove('linking-mode');
+                    removeLinkPreview();
                 } else if (state.selectedNodeId) {
                     document.getElementById(state.selectedNodeId)?.classList.remove('selected');
                     state.selectedNodeId = null;
@@ -1820,6 +2790,313 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         exportModal.style.display = 'none';
+    });
+
+    // --- Lógica do Modal de Visuais ---
+
+    addVisualsBtn.addEventListener('click', () => {
+        visualsModal.style.display = 'flex';
+    });
+
+    cancelVisualsBtn.addEventListener('click', () => {
+        visualsModal.style.display = 'none';
+    });
+
+    visualsModal.addEventListener('click', (e) => {
+        if (e.target === visualsModal) {
+            visualsModal.style.display = 'none';
+        }
+    });
+
+    // --- Lógica de Ação ---
+
+    addStickerImgBtn.addEventListener('click', () => {
+        addStickerInput.click();
+        visualsModal.style.display = 'none';
+    });
+
+    addStickerIconBtn.addEventListener('click', () => {
+        visualsModal.style.display = 'none';
+        iconSelectorModal.style.display = 'flex';
+    });
+
+    cancelIconSelectBtn.addEventListener('click', () => {
+        iconSelectorModal.style.display = 'none';
+    });
+
+    iconSelectorModal.addEventListener('click', (e) => {
+        if (e.target === iconSelectorModal) {
+            iconSelectorModal.style.display = 'none';
+        }
+    });
+
+    addLineBtn.addEventListener('click', () => {
+        state.isDrawingVisual = 'line';
+        visualsModal.style.display = 'none';
+        svgContainer.classList.add('drawing-mode');
+    });
+
+    addArrowBtn.addEventListener('click', () => {
+        state.isDrawingVisual = 'arrow';
+        visualsModal.style.display = 'none';
+        svgContainer.classList.add('drawing-mode');
+    });
+
+    iconGrid.addEventListener('click', (e) => {
+        const iconButton = e.target.closest('.icon-option');
+        if (!iconButton) return;
+        const iconClass = iconButton.dataset.icon;
+        if (!iconClass) return;
+
+        if (state.selectedNodeId && state.nodes[state.selectedNodeId].type === 'icon-sticker') {
+            // MODO EDIÇÃO
+            const node = state.nodes[state.selectedNodeId];
+            node.iconClass = iconClass;
+            node.label = iconClass;
+            setModifiedStatus(true);
+            render();
+        } else {
+            // MODO CRIAÇÃO
+            const centerSVGPoint = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
+            const newNodeId = 'node_' + Date.now();
+            state.nodes[newNodeId] = {
+                id: newNodeId,
+                type: 'icon-sticker',
+                x: centerSVGPoint.x,
+                y: centerSVGPoint.y,
+                width: 60,
+                height: 60,
+                label: iconClass,
+                iconClass: iconClass,
+                scale: 1
+            };
+            setModifiedStatus(true);
+            render();
+        }
+
+        iconSelectorModal.style.display = 'none';
+    });
+
+    addStandaloneTextBtn.addEventListener('click', () => {
+        const centerSVGPoint = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
+        const newNodeId = 'node_' + Date.now();
+
+        const initialText = "Escreva aqui...";
+
+        textMeasurer.style.fontSize = '16px';
+        textMeasurer.style.fontWeight = '500';
+        textMeasurer.textContent = initialText;
+        const initialWidth = Math.max(100, textMeasurer.offsetWidth + 40);
+        const initialHeight = Math.max(40, textMeasurer.offsetHeight + 20);
+
+        state.nodes[newNodeId] = {
+            id: newNodeId,
+            type: 'text-sticker',
+            x: centerSVGPoint.x,
+            y: centerSVGPoint.y,
+            width: initialWidth,
+            height: initialHeight,
+            label: initialText,
+            scale: 1
+        };
+
+        setModifiedStatus(true);
+        render();
+        visualsModal.style.display = 'none';
+    });
+
+    addShapeBtn.addEventListener('click', () => {
+        const centerSVGPoint = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
+        const newNodeId = 'node_' + Date.now();
+
+        state.nodes[newNodeId] = {
+            id: newNodeId,
+            type: 'shape',
+            shapeType: 'rectangle',
+            x: centerSVGPoint.x,
+            y: centerSVGPoint.y,
+            width: 150,
+            height: 100,
+            label: 'Shape'
+        };
+
+        setModifiedStatus(true);
+        render();
+        visualsModal.style.display = 'none';
+    });
+
+    // --- Lógica de Aplicação de Cor ---
+
+    function applyColorToSelection(color) {
+        let itemChanged = false;
+
+        if (state.selectedNodeId) {
+            const node = state.nodes[state.selectedNodeId];
+            if (node) {
+                node.color = color;
+                itemChanged = true;
+            }
+        } else if (state.selectedVisualId) {
+            const visual = state.visuals[state.selectedVisualId];
+            if (visual) {
+                visual.color = color;
+                itemChanged = true;
+            }
+        }
+
+        if (itemChanged) {
+            setModifiedStatus(true);
+            render();
+            colorPickerModal.style.display = 'none';
+        }
+    }
+
+    colorPaletteOptions.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const color = e.target.dataset.color;
+            applyColorToSelection(color);
+        });
+    });
+
+    customColorInput.addEventListener('change', (e) => {
+        applyColorToSelection(e.target.value);
+    });
+
+    cancelColorBtn.addEventListener('click', () => {
+        colorPickerModal.style.display = 'none';
+    });
+
+    colorPickerModal.addEventListener('click', (e) => {
+        if (e.target === colorPickerModal) colorPickerModal.style.display = 'none';
+    });
+
+    // --- Lógica de ícones ---
+
+    sizeSlider.addEventListener('input', (e) => {
+        const percent = parseInt(e.target.value, 10);
+        const scale = percent / 100;
+        sizeValueDisplay.textContent = `${percent}%`;
+
+        if (state.selectedNodeId) {
+            const node = state.nodes[state.selectedNodeId];
+            node.scale = scale;
+
+            if (node.type === 'icon-sticker') {
+                node.width = 60 * scale;
+                node.height = 60 * scale;
+            } else if (node.type === 'shape') {
+                const baseW = 150; 
+                const baseH = 100;
+                node.width = baseW * scale;
+                node.height = baseH * scale;
+            } else if (node.type === 'text-sticker') {
+                const nodeElement = document.getElementById(state.selectedNodeId);
+                if (nodeElement) {
+                    
+                }
+            }
+
+            setModifiedStatus(true);
+            render();
+        }
+    });
+
+    cancelSizeBtn.addEventListener('click', () => {
+        sizePickerModal.style.display = 'none';
+    });
+    sizePickerModal.addEventListener('click', (e) => {
+        if (e.target === sizePickerModal) sizePickerModal.style.display = 'none';
+    });
+
+    // --- Lógica de fontes
+
+    function updateTextStyle(prop, value) {
+        if (state.selectedNodeId) {
+            const node = state.nodes[state.selectedNodeId];
+            node[prop] = value;
+            setModifiedStatus(true);
+            render();
+        }
+    }
+
+    fontFamilySelect.addEventListener('change', (e) => {
+        updateTextStyle('fontFamily', e.target.value);
+    });
+
+    fontBoldBtn.addEventListener('click', () => {
+        const node = state.nodes[state.selectedNodeId];
+        const newState = !node.isBold;
+        if (newState) fontBoldBtn.classList.add('active');
+        else fontBoldBtn.classList.remove('active');
+
+        updateTextStyle('isBold', newState);
+    });
+
+    fontItalicBtn.addEventListener('click', () => {
+        const node = state.nodes[state.selectedNodeId];
+        const newState = !node.isItalic;
+        if (newState) fontItalicBtn.classList.add('active');
+        else fontItalicBtn.classList.remove('active');
+
+        updateTextStyle('isItalic', newState);
+    });
+
+    closeFontBtn.addEventListener('click', () => {
+        fontPickerModal.style.display = 'none';
+    });
+    fontPickerModal.addEventListener('click', (e) => {
+        if (e.target === fontPickerModal) fontPickerModal.style.display = 'none';
+    });
+
+    // --- Listeners para botões próprios do menu de contexto ---
+
+    contextColorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedId = state.selectedNodeId || state.selectedVisualId;
+        colorPickerModal.style.display = 'flex';
+        hideNodeControls();
+    });
+
+    contextSizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedId = state.selectedNodeId;
+        if (!selectedId) return;
+
+        const node = state.nodes[selectedId];
+
+        const currentScale = (node.scale || 1) * 100;
+        sizeSlider.value = currentScale;
+        sizeValueDisplay.textContent = `${Math.round(currentScale)}%`;
+
+        sizePickerModal.style.display = 'flex';
+        hideNodeControls();
+    });
+
+    contextFontBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedId = state.selectedNodeId;
+        if (!selectedId) return;
+
+        const node = state.nodes[selectedId];
+
+        fontFamilySelect.value = node.fontFamily || 'sans-serif';
+
+        if (node.isBold) fontBoldBtn.classList.add('active');
+        else fontBoldBtn.classList.remove('active');
+
+        if (node.isItalic) fontItalicBtn.classList.add('active');
+        else fontItalicBtn.classList.remove('active');
+
+        fontPickerModal.style.display = 'flex';
+        hideNodeControls();
+    });
+
+    contextIconBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedId = state.selectedNodeId;
+        visualsModal.style.display = 'none';
+        iconSelectorModal.style.display = 'flex';
+        hideNodeControls();
     });
 
     // --- Aviso Antes de Sair da Página ---

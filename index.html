@@ -11,21 +11,21 @@
 
     <meta property="og:title" content="Projeto Sniff | InvMap">
     <meta property="og:description" content="Mapa mental para investigações. Grátis e roda 100% no cliente.">
-    <meta property="og:image" content="https://sniff.wolfsecurity.com.br/invmap/imagens/InvmapLogo.png">
+    <meta property="og:image" content="favicon/web-app-manifest-512x512.png">
     <meta property="og:url" content="https://sniff.wolfsecurity.com.br/invmap">
     <meta property="og:type" content="website">
 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Projeto Sniff | InvMap">
     <meta name="twitter:description" content="Mapa mental para investigações. Grátis e roda 100% no cliente.">
-    <meta name="twitter:image" content="https://sniff.wolfsecurity.com.br/invmap/imagens/InvmapLogo.png">
+    <meta name="twitter:image" content="favicon/web-app-manifest-512x512.png">
 
-    <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
-    <link rel="shortcut icon" href="/favicon/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="favicon/favicon.svg" />
+    <link rel="shortcut icon" href="favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Projeto Sniff | InvMap" />
-    <link rel="manifest" href="/favicon/site.webmanifest" />
+    <link rel="manifest" href="favicon/site.webmanifest" />
 
     <link rel="stylesheet" href="css/style.css">
 
@@ -47,7 +47,7 @@
             <a href="https://github.com/wolfsecur1ty/InvMap" target="_blank" class="github-link">
                 <i class="fab fa-github"></i> GitHub
             </a>
-            <span class="version-info">v1.2 (28/10/2025)</span>
+            <span class="version-info">v1.3 (11/11/2025)</span>
         </div>
     </header>
 
@@ -62,6 +62,19 @@
     </div>
 
     <div id="context-menu-container">
+        <button id="context-color-btn" title="Mudar Cor">
+            <i class="fas fa-palette"></i>
+        </button>
+        <button id="context-size-btn" title="Mudar Tamanho">
+            <i class="fas fa-ruler-vertical"></i>
+        </button>
+        <button id="context-font-btn" title="Editar Estilo do Texto">
+            <i class="fas fa-font"></i>
+        </button>
+        <button id="context-icon-btn" title="Mudar Ícone">
+            <i class="fas fa-exchange-alt"></i>
+        </button>
+
         <button id="context-link-btn" title="Ligar a outro nó">
             <i class="fas fa-link"></i>
         </button>
@@ -71,6 +84,8 @@
     </div>
 
     <main id="svg-container">
+        <div id="notification-container"></div>
+        
         <div id="controls-container">
             <div id="controls">
                 <button id="add-root-node-btn" title="Adicionar novo nó">
@@ -89,6 +104,10 @@
                 <button id="remove-node-btn" title="Remover Nó Selecionado">
                     <i class="fas fa-trash-alt"></i>
                 </button>
+                <button id="add-visuals-btn" title="Adicionar Elementos Visuais">
+                    <i class="fas fa-drafting-compass"></i>
+                </button>
+                <input type="file" id="add-sticker-input" accept="image/*" style="display: none;">
                 <span class="separator"></span>
                 <button id="save-file-btn" class="btn-primary" title="Salvar Mapa em Arquivo">
                     <i class="fas fa-save"></i>
@@ -156,6 +175,150 @@
                 <div class="modal-actions">
                     <button type="button" id="add-person-btn"><i class="fas fa-user"></i> Pessoa</button>
                     <button type="button" id="add-company-btn"><i class="fas fa-building"></i> Empresa</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="visuals-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Adicionar Elemento Visual</h4>
+                <p>Selecione o tipo de elemento que deseja adicionar ao mapa.</p>
+
+                <div class="visuals-selection-grid">
+
+                    <button type="button" id="add-sticker-img-btn">
+                        <i class="fas fa-file-image"></i> Sticker (Imagem)
+                    </button>
+
+                    <button type="button" id="add-sticker-icon-btn">
+                        <i class="fas fa-icons"></i> Sticker (Ícone)
+                    </button>
+
+                    <button type="button" id="add-standalone-text-btn">
+                        <i class="fas fa-font"></i> Texto Solto
+                    </button>
+
+                    <button type="button" id="add-shape-btn">
+                        <i class="fas fa-vector-square"></i> Forma (Quadrado)
+                    </button>
+
+                    <button type="button" id="add-line-btn">
+                        <i class="fas fa-minus"></i> Linha
+                    </button>
+
+                    <button type="button" id="add-arrow-btn">
+                        <i class="fas fa-long-arrow-alt-right"></i> Seta
+                    </button>
+
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancel-visuals-btn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="icon-selector-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <h4>Selecionar Ícone</h4>
+                <p>Escolha um ícone para adicionar ao mapa como um sticker.</p>
+
+                <div id="icon-grid" class="visuals-selection-grid">
+                    <button class="icon-option" data-icon="fas fa-user-secret"><i class="fas fa-user-secret"></i></button>
+                    <button class="icon-option" data-icon="fas fa-exclamation-triangle"><i class="fas fa-exclamation-triangle"></i></button>
+                    <button class="icon-option" data-icon="fas fa-flag"><i class="fas fa-flag"></i></button>
+                    <button class="icon-option" data-icon="fas fa-map-marker-alt"><i class="fas fa-map-marker-alt"></i></button>
+                    <button class="icon-option" data-icon="fas fa-globe"><i class="fas fa-globe"></i></button>
+                    <button class="icon-option" data-icon="fas fa-building"><i class="fas fa-building"></i></button>
+                    <button class="icon-option" data-icon="fas fa-phone"><i class="fas fa-phone"></i></button>
+                    <button class="icon-option" data-icon="fas fa-envelope"><i class="fas fa-envelope"></i></button>
+                    <button class="icon-option" data-icon="fas fa-camera"><i class="fas fa-camera"></i></button>
+                    <button class="icon-option" data-icon="fas fa-key"><i class="fas fa-key"></i></button>
+                    <button class="icon-option" data-icon="fas fa-file-alt"><i class="fas fa-file-alt"></i></button>
+                    <button class="icon-option" data-icon="fas fa-link"><i class="fas fa-link"></i></button>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancel-icon-select-btn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="color-picker-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 350px;">
+                <h4>Escolher Cor</h4>
+
+                <div class="color-palette-grid">
+                    <button class="color-option" data-color="#f0f0f5" style="background-color: #f0f0f5;" title="Padrão (Claro)"></button>
+                    <button class="color-option" data-color="#4a4a52" style="background-color: #4a4a52;" title="Padrão (Escuro)"></button>
+                    <button class="color-option" data-color="#f95738" style="background-color: #f95738;" title="Laranja Sniff"></button>
+                    <button class="color-option" data-color="#ee964b" style="background-color: #ee964b;" title="Laranja Claro"></button>
+                    <button class="color-option" data-color="#f4d35e" style="background-color: #f4d35e;" title="Amarelo"></button>
+                    <button class="color-option" data-color="#0d3b66" style="background-color: #0d3b66;" title="Azul Escuro"></button>
+                    <button class="color-option" data-color="#faf0ca" style="background-color: #faf0ca;" title="Bege"></button>
+                    <button class="color-option" data-color="#ff595e" style="background-color: #ff595e;" title="Vermelho"></button>
+                    <button class="color-option" data-color="#1982c4" style="background-color: #1982c4;" title="Azul"></button>
+                    <button class="color-option" data-color="#8ac926" style="background-color: #8ac926;" title="Verde"></button>
+                    <button class="color-option" data-color="#6a4c93" style="background-color: #6a4c93;" title="Roxo"></button>
+                    <button class="color-option" data-color="#ffffff" style="background-color: #ffffff; border: 1px solid #ccc;" title="Branco"></button>
+                </div>
+
+                <div class="form-divider"></div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                    <label for="custom-color-input" style="margin: 0;">Personalizada:</label>
+                    <input type="color" id="custom-color-input" style="width: 50px; height: 30px; padding: 0;">
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancel-color-btn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="size-picker-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 300px;">
+                <h4>Ajustar Tamanho</h4>
+
+                <div class="form-group">
+                    <label for="size-slider">Escala:</label>
+                    <input type="range" id="size-slider" min="50" max="300" value="100" style="width: 100%;">
+                    <div style="text-align: center; margin-top: 5px; font-size: 0.8em; color: var(--sniff-text-secondary);">
+                        <span id="size-value-display">100%</span>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancel-size-btn">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="font-picker-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 350px;">
+                <h4>Estilo do Texto</h4>
+
+                <div class="form-group">
+                    <label for="font-family-select">Fonte:</label>
+                    <select id="font-family-select">
+                        <option value="sans-serif">Sans-serif (Padrão)</option>
+                        <option value="serif">Serif</option>
+                        <option value="monospace">Monospace</option>
+                        <option value="cursive">Cursive</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button type="button" id="font-bold-btn" class="style-toggle-btn" title="Negrito">
+                        <i class="fas fa-bold"></i>
+                    </button>
+                    <button type="button" id="font-italic-btn" class="style-toggle-btn" title="Itálico">
+                        <i class="fas fa-italic"></i>
+                    </button>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="close-font-btn">Fechar</button>
                 </div>
             </div>
         </div>
@@ -307,10 +470,10 @@
                 <g id="background-layer">
                     <rect id="grid-background" x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid-pattern)"/>
                 </g>
-
                 <g id="edges-layer"></g>
-
+                <g id="visuals-layer"></g>
                 <g id="nodes-layer"></g>
+                <g id="handles-layer"></g>
             </g>
         </svg>
     </main>
