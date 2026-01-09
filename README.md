@@ -12,7 +12,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/version-1.1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.4-orange" alt="Version">
   <img src="https://img.shields.io/badge/status-ativo-success" alt="Status">
 </p>
 
@@ -35,6 +35,10 @@ Acesse a ferramenta diretamente no seu navegador:
 **[https://sniff.wolfsecurity.com.br/invmap/](https://sniff.wolfsecurity.com.br/invmap/)**
 
 Não há necessidade de instalação ou cadastro. Para um guia detalhado de todas as funcionalidades e atalhos, consulte nosso [artigo](https://sniff.wolfsecurity.com.br/invmap-intro) na wiki do Projeto Sniff.
+
+## 📝 Histórico de Versões
+
+Para ver todas as mudanças e atualizações, consulte o [CHANGELOG](CHANGELOG.md).
 
 ### 🛠️ Desenvolvimento Local
 

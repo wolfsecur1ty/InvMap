@@ -2172,196 +2172,214 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Funções de Exportação ---
 
-    async function generateCleanSvgString(options) {
-        const svgElement = document.getElementById('mindmap-svg');
-        if (!svgElement) { return null; }
-
-        const bounds = getMapBounds();
-        if (bounds.width <= 0 || bounds.height <= 0) {
-            console.error("Bounds inválidos calculados:", bounds);
-            return null;
+    async function exportAsPNG() {
+        showNotification('Calculando extensão do mapa...', 'info', 2000);
+        
+        const container = document.getElementById('svg-container'); 
+        const mainGroup = document.querySelector('#svg-container svg > g'); 
+        
+        if (!container || !mainGroup) {
+            showNotification('Erro: Estrutura do mapa não identificada.', 'error');
+            return;
         }
 
-        const svgClone = svgElement.cloneNode(true);
-        const svgNS = "http://www.w3.org/2000/svg";
-        const gridBackground = svgClone.querySelector('#grid-background');
-        if (gridBackground) gridBackground.remove();
+        const themeSelect = document.getElementById('export-theme');
+        const scaleSelect = document.getElementById('export-scale');
+        const selectedTheme = themeSelect ? themeSelect.value : 'dark';
+        const selectedScale = scaleSelect ? parseInt(scaleSelect.value) : 1;
+        const backgroundColor = selectedTheme === 'light' ? '#ffffff' : '#1a1a1f';
 
-        let nodeBgColor = '#363640';
-        let nodeStrokeColor = '#AAAAAA';
-        let textColor = '#F0F0F0';
-        let edgeColor = '#666666';
+        const originalTransform = mainGroup.getAttribute('transform');
+        const originalWidth = container.style.width;
+        const originalHeight = container.style.height;
+        const currentSelected = state.selectedNodeId;
+        const bounds = getMapBounds(); 
+        
+        try {
+            if (selectedTheme === 'light') container.classList.add('forcing-light-theme');
+            
+            hideNodeControls();
+            if (state.selectedNodeId) document.getElementById(state.selectedNodeId)?.classList.remove('selected');
 
-        if (options.exportTheme === 'light') {
-            nodeBgColor = '#E0E0E0';
-            nodeStrokeColor = '#888888';
-            textColor = '#333333';
-            edgeColor = '#555555';
-        } else if (options.exportTheme === 'dark') {
-            nodeBgColor = '#363640';
-            nodeStrokeColor = '#AAAAAA';
-            textColor = '#F0F0F0';
-            edgeColor = '#666666';
-        }
+            const inputs = container.querySelectorAll('input');
+            const textareas = container.querySelectorAll('textarea');
+            inputs.forEach(input => { if (input.type !== 'password' && input.type !== 'hidden') input.setAttribute('value', input.value); });
+            textareas.forEach(textarea => { textarea.innerHTML = textarea.value; });
 
-        svgClone.querySelectorAll('.node-group').forEach(group => {
-            const nodeId = group.getAttribute('id');
-            const nodeData = state.nodes[nodeId];
-            const rect = group.querySelector('.node-rect');
-            const foreignObject = group.querySelector('foreignObject');
+            mainGroup.setAttribute('transform', `translate(${-bounds.x}, ${-bounds.y}) scale(1)`);
+            
+            container.style.width = `${bounds.width}px`;
+            container.style.height = `${bounds.height}px`;
 
-            if (rect) {
-                rect.setAttribute('style', `fill: ${nodeBgColor}; stroke: ${nodeStrokeColor}; stroke-width: 1.5px; rx: 8px;`);
-            }
-            if (foreignObject && nodeData) {
-                let labelText = "", fontSize = 14, textYOffset = 0, nodeHeight = nodeData.height || 50;
-                if (!nodeData.type) { labelText = nodeData.label || ""; }
-                else if (nodeData.type === 'entity') { labelText = `${nodeData.name || "[Entidade]"}${nodeData.age ? ` (${nodeData.age})` : ''}`; fontSize = 16; }
-                else if (nodeData.type === 'image') { labelText = nodeData.label || "[Imagem]"; fontSize = 10; textYOffset = (nodeHeight / 2) - (fontSize / 2) - 5; }
-                foreignObject.remove();
-                const textElement = document.createElementNS(svgNS, "text");
-                textElement.setAttribute('style', `fill: ${textColor}; font-family: sans-serif; font-size: ${fontSize}px; text-anchor: middle; dominant-baseline: middle;`);
-                textElement.setAttribute('x', '0');
-                textElement.setAttribute('y', textYOffset.toString());
-                const lines = labelText.split('\n');
-                const lineHeight = fontSize * 1.2;
-                textElement.setAttribute('y', (textYOffset - ((lines.length - 1) * lineHeight) / 2).toString());
-                lines.forEach((line, index) => {
-                    const tspan = document.createElementNS(svgNS, "tspan");
-                    tspan.setAttribute('x', '0');
-                    tspan.setAttribute('dy', index === 0 ? '0' : `${lineHeight}px`);
-                    tspan.textContent = line;
-                    textElement.appendChild(tspan);
-                });
-                group.appendChild(textElement);
-            }
-        });
+            await new Promise(r => setTimeout(r, 50));
 
-        svgClone.querySelectorAll('.edge-path').forEach(path => {
-            path.setAttribute('style', `stroke: ${edgeColor}; stroke-width: 1.5px; fill: none; marker-end: url(#arrowhead);`);
-        });
-        svgClone.querySelectorAll('.arrowhead-path').forEach(path => {
-            path.setAttribute('style', `fill: ${edgeColor};`);
-        });
-
-        // Aplica estilos às Linhas/Setas Visuais
-        svgClone.querySelectorAll('.visual-path').forEach(path => {
-            path.setAttribute('style', `stroke: ${edgeColor}; stroke-width: 1.5px; fill: none; stroke-dasharray: 5, 5;`);
-            if (path.classList.contains('visual-arrow')) {
-                path.style.markerEnd = 'url(#arrowhead)';
-            }
-        });
-
-        svgClone.setAttribute("xmlns", svgNS);
-        svgClone.style.backgroundColor = options.bgColor || '#FFFFFF';
-        // Define width, height e viewBox baseados nos bounds calculados
-        svgClone.setAttribute('width', bounds.width.toString());
-        svgClone.setAttribute('height', bounds.height.toString());
-        // O viewBox deve começar nas coordenadas mínimas e ter a largura/altura total
-        svgClone.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
-        svgClone.style.width = null;
-        svgClone.style.height = null;
-
-        const svgDoctype = '<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">';
-        const svgData = svgDoctype + new XMLSerializer().serializeToString(svgClone);
-        return svgData;
-    }
-
-    async function generatePngDataUrl(options) {
-        const svgOptions = {
-            bgColor: options.bgColor || '#FFFFFF',
-            exportTheme: options.exportTheme
-        };
-        const svgString = await generateCleanSvgString(svgOptions);
-        if (!svgString) {
-            console.error("Falha ao gerar string SVG para PNG.");
-            return null;
-        }
-
-        const img = new Image();
-        const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
-        const url = URL.createObjectURL(svgBlob);
-
-        const loadImagePromise = new Promise((resolve, reject) => {
-            img.onload = () => {
-                console.log(`Imagem SVG carregada (PNG)! Dimensões: ${img.naturalWidth} x ${img.naturalHeight}`);
-                if (img.naturalWidth === 0 || img.naturalHeight === 0) {
-                    reject(new Error("Imagem SVG carregada com dimensões zero."));
-                } else {
-                    resolve(img);
+            const options = {
+                quality: 1.0,
+                pixelRatio: selectedScale,
+                backgroundColor: backgroundColor,
+                width: bounds.width,
+                height: bounds.height,
+                useCORS: true,
+                skipOnError: true,
+                style: {
+                    transform: 'none',
+                    transformOrigin: 'top left'
+                },
+                filter: (element) => {
+                    if (element.id === 'grid-layer') return false; 
+                    if (element.classList && element.classList.contains('node-controls')) return false;
+                    if (element.classList && element.classList.contains('resize-handle')) return false;
+                    if (element.id === 'controls-container') return false;
+                    if (element.id === 'notification-container') return false;
+                    if (element.classList && element.classList.contains('modal-overlay')) return false;
+                    if (element.id === 'main-controls-wrapper') return false; 
+                    if (element.id === 'mobile-menu-toggle') return false;
+                    return true;
                 }
             };
-            img.onerror = (e) => {
-                console.error("img.onerror (PNG):", e);
-                reject(new Error("Falha ao carregar Blob SVG na tag Image."));
-            };
-            img.src = url;
-        });
 
-        try {
-            const loadedImage = await loadImagePromise;
+            showNotification(`Gerando imagem completa (${Math.round(bounds.width)}x${Math.round(bounds.height)})...`, 'info', 4000);
 
-            // Calcular Dimensões Finais do Canvas
-            const bounds = getMapBounds();
-            const scale = options.pngScale || 1;
-            const canvasWidth = Math.max(1, Math.round(bounds.width * scale));
-            const canvasHeight = Math.max(1, Math.round(bounds.height * scale));
+            const dataUrl = await htmlToImage.toPng(container, options);
+            
+            const link = document.createElement('a');
+            link.download = `invmap-full-${selectedTheme}-${Date.now()}.png`;
+            link.href = dataUrl;
+            link.click();
 
-            // Criar Canvas
-            const canvas = document.createElement('canvas');
-            canvas.width = canvasWidth;
-            canvas.height = canvasHeight;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) throw new Error("Não foi possível obter o contexto 2D.");
-
-            ctx.fillStyle = options.bgColor || '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Desenhar a imagem SVG inteira no canvas
-            ctx.drawImage(loadedImage, 0, 0, canvasWidth, canvasHeight);
-
-            // Gerar Data URL
-            const pngUrl = canvas.toDataURL('image/png');
-            return pngUrl;
+            showNotification('Mapa completo exportado com sucesso!', 'success');
 
         } catch (error) {
-            console.error("Erro durante generatePngDataUrl:", error);
-            return null;
+            console.error('Erro na exportação:', error);
+            showNotification('Erro ao gerar imagem. Verifique o console.', 'error');
         } finally {
-            URL.revokeObjectURL(url);
+            container.classList.remove('forcing-light-theme');
+            
+            container.style.width = originalWidth || '100vw'; 
+            container.style.height = originalHeight || '100vh';
+            
+            if (originalTransform) {
+                mainGroup.setAttribute('transform', originalTransform);
+            }
+
+            if (currentSelected) {
+                document.getElementById(currentSelected)?.classList.add('selected');
+                state.selectedNodeId = currentSelected;
+            }
         }
     }
 
-    async function exportAsPNG(filename, options) {
-        const pngUrl = await generatePngDataUrl(options);
-        if (pngUrl) {
-            const a = document.createElement('a');
-            a.href = pngUrl;
-            a.download = `${filename}.png`;
-            a.click();
-        } else {
-            showNotification('Ocorreu um erro ao gerar a imagem PNG.', 'error');
+    async function exportAsSVG(filename, options) {
+        showNotification('Calculando extensão do mapa para SVG...', 'info', 2000);
+        
+        const container = document.getElementById('svg-container'); 
+        const mainGroup = document.querySelector('#svg-container svg > g'); 
+        
+        if (!container || !mainGroup) {
+            showNotification('Erro: Estrutura do mapa não identificada.', 'error');
+            return;
+        }
+
+        const selectedTheme = options.exportTheme || 'dark';
+        const backgroundColor = selectedTheme === 'light' ? '#ffffff' : '#1a1a1f';
+        const originalTransform = mainGroup.getAttribute('transform');
+        const originalWidth = container.style.width;
+        const originalHeight = container.style.height;
+        const currentSelected = state.selectedNodeId;
+
+        const bounds = getMapBounds(); 
+        
+        try {
+            if (selectedTheme === 'light') container.classList.add('forcing-light-theme');
+            
+            hideNodeControls();
+            if (state.selectedNodeId) document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+
+            const inputs = container.querySelectorAll('input');
+            const textareas = container.querySelectorAll('textarea');
+            inputs.forEach(input => { 
+                if (input.type !== 'password' && input.type !== 'hidden') input.setAttribute('value', input.value); 
+            });
+            textareas.forEach(textarea => { 
+                textarea.innerHTML = textarea.value; 
+            });
+
+            mainGroup.setAttribute('transform', `translate(${-bounds.x}, ${-bounds.y}) scale(1)`);
+            
+            container.style.width = `${bounds.width}px`;
+            container.style.height = `${bounds.height}px`;
+
+            await new Promise(r => setTimeout(r, 50));
+
+            const libOptions = {
+                backgroundColor: backgroundColor,
+                width: bounds.width,
+                height: bounds.height,
+                useCORS: true,
+                skipOnError: true,
+                style: {
+                    transform: 'none',
+                    transformOrigin: 'top left'
+                },
+                filter: (element) => {
+                    if (element.id === 'grid-layer') return false; 
+                    if (element.classList && element.classList.contains('node-controls')) return false;
+                    if (element.classList && element.classList.contains('resize-handle')) return false;
+                    if (element.id === 'controls-container') return false;
+                    if (element.id === 'notification-container') return false;
+                    if (element.classList && element.classList.contains('modal-overlay')) return false;
+                    if (element.id === 'main-controls-wrapper') return false; 
+                    if (element.id === 'mobile-menu-toggle') return false;
+                    return true;
+                }
+            };
+
+            showNotification('Gerando arquivo SVG...', 'info', 3000);
+
+            const dataUrl = await htmlToImage.toSvg(container, libOptions);
+            
+            const link = document.createElement('a');
+            link.download = `${filename}.svg`;
+            link.href = dataUrl;
+            link.click();
+
+            showNotification('SVG exportado com sucesso!', 'success');
+
+        } catch (error) {
+            console.error('Erro na exportação SVG:', error);
+            showNotification('Erro ao gerar SVG. Verifique o console.', 'error');
+        } finally {
+            container.classList.remove('forcing-light-theme');
+            
+            container.style.width = originalWidth || '100vw'; 
+            container.style.height = originalHeight || '100vh';
+            
+            if (originalTransform) {
+                mainGroup.setAttribute('transform', originalTransform);
+            }
+            if (currentSelected) {
+                document.getElementById(currentSelected)?.classList.add('selected');
+                state.selectedNodeId = currentSelected;
+            }
         }
     }
 
     function generateTextMap(startNodeId = "root", indent = "") {
         let textOutput = "";
-        const visitedNodes = new Set(); // Para evitar loops infinitos (temporário)
+        const visitedNodes = new Set(); 
 
         function traverse(nodeId, currentIndent) {
             if (!nodeId || visitedNodes.has(nodeId)) {
-                return; // Sai se o nó não existe ou já foi visitado
+                return; 
             }
             visitedNodes.add(nodeId);
 
             const node = state.nodes[nodeId];
-            if (!node) return; // Sai se os dados do nó não existem
+            if (!node) return; 
 
-            // Adiciona a linha para o nó atual
             let nodeLabel = node.label || node.name || `[Nó ${node.type || 'sem título'}]`;
             textOutput += `${currentIndent}- ${nodeLabel}\n`;
 
-            // Encontra os filhos diretos deste nó
             const childrenIds = [];
             for (const edgeId in state.edges) {
                 if (state.edges[edgeId].source === nodeId) {
@@ -2369,9 +2387,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Recursivamente chama para cada filho
             childrenIds.forEach(childId => {
-                traverse(childId, currentIndent + "  "); // Adiciona indentação
+                traverse(childId, currentIndent + "  "); 
             });
         }
 
@@ -2385,120 +2402,165 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function exportAsPDF(filename, options) {
-        const pngOptions = { ...options, pngScale: 2 };
-        const pngUrl = await generatePngDataUrl(pngOptions);
+        showNotification('Preparando PDF... aguarde.', 'info', 3000);
 
-        if (!pngUrl) {
-            showNotification('Erro ao gerar a imagem base para o PDF.', 'error');
+        const container = document.getElementById('svg-container'); 
+        const mainGroup = document.querySelector('#svg-container svg > g'); 
+
+        if (!container || !mainGroup) {
+            showNotification('Erro: Estrutura do mapa não identificada.', 'error');
             return;
         }
 
         let logoDataUrl = null;
         if (options.addLogo) {
-            if (options.logoType === 'default') {
-                try {
+            try {
+                if (options.logoType === 'default') {
                     const response = await fetch('imagens/InvmapLogo.png');
-                    if (!response.ok) throw new Error('Falha ao buscar logo padrão');
-                    const blob = await response.blob();
-                    logoDataUrl = await new Promise((resolve, reject) => {
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        logoDataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                    }
+                } else if (options.logoType === 'upload' && options.logoFile) {
+                    logoDataUrl = await new Promise((resolve) => {
                         const reader = new FileReader();
                         reader.onloadend = () => resolve(reader.result);
-                        reader.onerror = reject;
-                        reader.readAsDataURL(blob);
-                    });
-                    console.log("Logo padrão carregada.");
-                } catch (error) {
-                    console.error("Erro ao carregar logo padrão:", error);
-                }
-            } else if (options.logoType === 'upload' && options.logoFile) {
-                try {
-                    logoDataUrl = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result);
-                        reader.onerror = reject;
                         reader.readAsDataURL(options.logoFile);
                     });
-                    console.log("Logo personalizada carregada.");
-                } catch (error) {
-                    console.error("Erro ao carregar logo personalizada:", error);
                 }
+            } catch (error) {
+                console.warn("Não foi possível carregar a logo:", error);
             }
         }
 
+        const themeSelect = document.getElementById('export-theme');
+        const selectedTheme = themeSelect ? themeSelect.value : 'dark';
+        const backgroundColor = selectedTheme === 'light' ? '#ffffff' : '#1a1a1f';
+
+        const originalTransform = mainGroup.getAttribute('transform');
+        const originalWidth = container.style.width;
+        const originalHeight = container.style.height;
+        const currentSelected = state.selectedNodeId;
+
+        const bounds = getMapBounds();
+
         try {
-            const bounds = getMapBounds(); // Obtém bounds em unidades SVG/pt
-            const pdfWidthPt = Math.max(100, Math.round(bounds.width));
-            const pdfHeightPt = Math.max(100, Math.round(bounds.height));
-            const orientation = pdfWidthPt > pdfHeightPt ? 'l' : 'p';
-            console.log(`Dimensões do PDF (pt): ${pdfWidthPt} x ${pdfHeightPt}`);
+            if (selectedTheme === 'light') container.classList.add('forcing-light-theme');
+            
+            hideNodeControls();
+            if (state.selectedNodeId) document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+            const inputs = container.querySelectorAll('input');
+            const textareas = container.querySelectorAll('textarea');
+            inputs.forEach(input => { if (input.type !== 'password' && input.type !== 'hidden') input.setAttribute('value', input.value); });
+            textareas.forEach(textarea => { textarea.innerHTML = textarea.value; });
+
+            mainGroup.setAttribute('transform', `translate(${-bounds.x}, ${-bounds.y}) scale(1)`);
+            container.style.width = `${bounds.width}px`;
+            container.style.height = `${bounds.height}px`;
+
+            await new Promise(r => setTimeout(r, 50));
+
+            const imageOptions = {
+                quality: 1.0,
+                pixelRatio: 2, 
+                backgroundColor: backgroundColor,
+                width: bounds.width,
+                height: bounds.height,
+                useCORS: true,
+                skipOnError: true,
+                style: { transform: 'none', transformOrigin: 'top left' },
+                filter: (element) => {
+                    if (element.id === 'grid-layer') return false; 
+                    if (element.classList && element.classList.contains('node-controls')) return false;
+                    if (element.classList && element.classList.contains('resize-handle')) return false;
+                    if (element.id === 'controls-container') return false;
+                    if (element.id === 'notification-container') return false;
+                    if (element.classList && element.classList.contains('modal-overlay')) return false;
+                    if (element.id === 'main-controls-wrapper') return false; 
+                    if (element.id === 'mobile-menu-toggle') return false;
+                    return true;
+                }
+            };
+
+            const mapDataUrl = await htmlToImage.toPng(container, imageOptions);
 
             const { jsPDF } = window.jspdf;
-            const pdfDoc = new jsPDF({
+            
+            const pdfWidth = bounds.width;
+            const pdfHeight = bounds.height;
+            const orientation = pdfWidth > pdfHeight ? 'l' : 'p';
+
+            const pdf = new jsPDF({
                 unit: 'pt',
-                format: [pdfWidthPt, pdfHeightPt],
+                format: [pdfWidth, pdfHeight],
                 orientation: orientation
             });
-            pdfDoc.addImage(
-                pngUrl,
-                'PNG',
-                0,          // Posição X no PDF
-                0,          // Posição Y no PDF
-                pdfWidthPt,
-                pdfHeightPt
-            );
-            console.log("Imagem adicionada ao PDF.");
 
-            const pageMargin = 20; // Margem em pt
-            let currentX = pageMargin; // Posição X inicial
+            pdf.addImage(mapDataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+            const margin = 20;
+            let currentX = margin;
 
             if (logoDataUrl) {
-                try {
-                    const imgProps = pdfDoc.getImageProperties(logoDataUrl);
-                    const logoHeight = 30; // Altura fixa da logo em pt
-                    const logoWidth = (imgProps.width * logoHeight) / imgProps.height; // Calcula largura proporcional
-
-                    pdfDoc.addImage(logoDataUrl, imgProps.fileType, currentX, pageMargin, logoWidth, logoHeight);
-                    currentX += logoWidth + 10; // Avança a posição X
-                    console.log("Logo adicionada ao PDF.");
-                } catch (imgError) {
-                    console.error("Erro ao adicionar logo ao PDF:", imgError);
-                }
+                const logoW = 50;
+                const logoH = 50;
+                pdf.addImage(logoDataUrl, 'PNG', currentX, margin, logoW, logoH);
+                currentX += logoW + 15;
             }
 
             if (options.addTitle) {
-                pdfDoc.setFontSize(12);
-                pdfDoc.setTextColor(51, 51, 51); // Cor do titulo
-                pdfDoc.text(options.customTitle || "Mapa Mental InvMap", currentX, pageMargin + 20); // Posiciona ao lado da logo
-                console.log("Título adicionado ao PDF.");
+                pdf.setFontSize(24);
+                pdf.setTextColor(selectedTheme === 'light' ? 51 : 240); 
+                const titleText = options.customTitle || "Mapa Mental InvMap";
+                pdf.text(titleText, currentX, margin + 30);
             }
 
             const textMap = generateTextMap();
-
             if (textMap) {
-                pdfDoc.addPage();
-                pdfDoc.setFont('helvetica', 'sans-serif');
-                pdfDoc.setFontSize(10);
-                pdfDoc.setTextColor(51, 51, 51);
-                const pageHeight = pdfDoc.internal.pageSize.getHeight();
-                const pageMargin = 40;
-                let currentY = pageMargin;
+                pdf.addPage(); 
+                const a4Width = pdf.internal.pageSize.getWidth();
+                const a4Height = pdf.internal.pageSize.getHeight();
+                
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(16);
+                pdf.setTextColor(50);
+                pdf.text("Resumo Estruturado", 40, 40);
 
-                const lines = pdfDoc.splitTextToSize(textMap, pdfDoc.internal.pageSize.getWidth() - (pageMargin * 2));
+                pdf.setFont('courier', 'normal');
+                pdf.setFontSize(10);
+                
+                const lines = pdf.splitTextToSize(textMap, a4Width - 80);
+                let y = 60;
 
-                lines.forEach((line, index) => {
-                    if (currentY + 12 > pageHeight - pageMargin) {
-                        pdfDoc.addPage();
-                        currentY = pageMargin;
+                lines.forEach(line => {
+                    if (y > a4Height - 40) {
+                        pdf.addPage();
+                        y = 40;
                     }
-                    pdfDoc.text(line, pageMargin, currentY);
-                    currentY += 12;
+                    pdf.text(line, 40, y);
+                    y += 12;
                 });
             }
-            pdfDoc.save(`${filename}.pdf`);
+
+            pdf.save(`${filename}.pdf`);
+            showNotification('PDF gerado com sucesso!', 'success');
 
         } catch (error) {
-            console.error("Erro ao gerar o PDF a partir da imagem:", error);
-            showNotification('Ocorreu um erro ao gerar o arquivo PDF.', 'error');
+            console.error("Erro na geração do PDF:", error);
+            showNotification('Erro ao gerar PDF. Verifique o console.', 'error');
+        } finally {
+            container.classList.remove('forcing-light-theme');
+            container.style.width = originalWidth || '100vw'; 
+            container.style.height = originalHeight || '100vh';
+            if (originalTransform) mainGroup.setAttribute('transform', originalTransform);
+            if (currentSelected) {
+                document.getElementById(currentSelected)?.classList.add('selected');
+                state.selectedNodeId = currentSelected;
+            }
         }
     }
 
@@ -2767,22 +2829,12 @@ document.addEventListener('DOMContentLoaded', () => {
             addTitle: addTitleCheckbox.checked,
             customTitle: document.getElementById('export-custom-title').value,
             bgColor: document.getElementById('export-bg-color').value,
-            pngScale: parseInt(document.getElementById('export-png-scale').value, 10),
+            pngScale: parseInt(document.getElementById('export-scale').value, 10),
             exportTheme: document.getElementById('export-theme').value
         };
 
         if (format === 'svg') {
-            generateCleanSvgString({bgColor: 'transparent'}).then(svgData => {
-                if (svgData) {
-                    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${filename}.svg`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                }
-            });
+            exportAsSVG(filename, options);
         } else if (format === 'pdf') {
             exportAsPDF(filename, options);
         } else if (format === 'png') {
@@ -3098,6 +3150,40 @@ document.addEventListener('DOMContentLoaded', () => {
         iconSelectorModal.style.display = 'flex';
         hideNodeControls();
     });
+
+    // --- Lógica do Menu Mobile (Toggle) ---
+    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+    const controlsContainer = document.getElementById('controls-container');
+
+    if (mobileMenuToggle && controlsContainer) {
+        mobileMenuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            controlsContainer.classList.toggle('show');
+            mobileMenuToggle.classList.toggle('active');
+
+            const icon = mobileMenuToggle.querySelector('i');
+            if (controlsContainer.classList.contains('show')) {
+                icon.classList.remove('fa-bars');
+                icon.classList.add('fa-times');
+            } else {
+                icon.classList.remove('fa-times');
+                icon.classList.add('fa-bars');
+            }
+        });
+
+        controlsContainer.addEventListener('click', (e) => {
+            if (e.target.closest('.control-btn') || e.target.tagName === 'LABEL') {
+                if (window.getComputedStyle(mobileMenuToggle).display !== 'none') {
+                    controlsContainer.classList.remove('show');
+                    mobileMenuToggle.classList.remove('active');
+                    const icon = mobileMenuToggle.querySelector('i');
+                    icon.classList.remove('fa-times');
+                    icon.classList.add('fa-bars');
+                }
+            }
+        });
+    }
 
     // --- Aviso Antes de Sair da Página ---
     window.addEventListener('beforeunload', (event) => {
