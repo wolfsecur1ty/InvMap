@@ -73,6 +73,136 @@ body {
 }
 
 /* =================================================== */
+/* ||             HEADER & DASHBOARD                || */
+/* =================================================== */
+
+.main-header {
+    height: 60px;
+    padding: 0 20px;
+    background-color: var(--sniff-bg-widget);
+    border-bottom: 1px solid var(--sniff-border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 100;
+}
+
+.header-left, .header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-logo {
+    height: 32px;
+    width: auto;
+    filter: drop-shadow(0 0 5px rgba(249, 87, 56, 0.3));
+}
+
+.map-meta-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.map-title-input {
+    background: transparent;
+    border: none;
+    color: var(--sniff-text-primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+    font-family: inherit;
+    width: 250px;
+    padding: 0;
+    margin: 0;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.map-title-input:hover, .map-title-input:focus {
+    color: var(--sniff-accent);
+}
+
+.map-title-input::placeholder {
+    color: var(--sniff-text-secondary);
+    opacity: 0.5;
+}
+
+/* --- Indicador de Status (Salvo/Modificado) --- */
+.save-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--sniff-text-secondary);
+    cursor: default;
+    margin-top: -2px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #8ac926;
+    box-shadow: 0 0 5px #8ac926;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.save-status.modified .status-dot {
+    background-color: #ffca3a;
+    box-shadow: 0 0 5px #ffca3a;
+}
+
+.save-status.modified .status-text::after {
+    content: " (Não salvo)";
+}
+
+/* --- Relógio --- */
+.system-clock {
+    background-color: var(--sniff-bg-dark);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--sniff-border-color);
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: var(--sniff-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.system-clock i {
+    color: var(--sniff-accent);
+}
+
+/* --- Badge de Versão --- */
+.version-badge {
+    font-size: 0.75rem;
+    background-color: rgba(255, 255, 255, 0.05);
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--sniff-text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header-divider {
+    width: 1px;
+    height: 25px;
+    background-color: var(--sniff-border-color);
+}
+
+.hide-mobile {
+    display: inline;
+}
+
+@media (max-width: 768px) {
+    .hide-mobile { display: none; }
+    .map-title-input { width: 160px; font-size: 1rem; }
+    .system-clock { display: none; }
+}
+
+/* =================================================== */
 /* ||      ESTILOS PARA OS ELEMENTOS DO MAPA        || */
 /* =================================================== */
 
@@ -207,6 +337,31 @@ body {
 /* =================================================== */
 /* ||      ESTILOS PARA OS ELEMENTOS DO MAPA        || */
 /* =================================================== */
+
+/* --- Impede seleção de texto azul nativa --- */
+.node-group, 
+.node-image, 
+.node-label, 
+.text-sticker-label,
+.entity-node-container,
+.icon-sticker-container,
+.visual-path-hitbox,
+#svg-container {
+    -webkit-user-select: none; /* Safari */
+    -moz-user-select: none;    /* Firefox */
+    -ms-user-select: none;     /* IE10+/Edge */
+    user-select: none;         /* Standard */
+}
+
+.node-editor-textarea,
+.text-sticker-textarea,
+.edit-entity-form input,
+.edit-entity-form textarea {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
 
 .node-group {
     cursor: pointer;
@@ -1322,4 +1477,48 @@ body {
 .forcing-light-theme input::placeholder,
 .forcing-light-theme textarea::placeholder {
     color: rgba(0, 0, 0, 0.5) !important;
+}
+
+.selection-box {
+    fill: rgba(249, 87, 56, 0.1);
+    stroke: var(--sniff-accent);
+    stroke-width: 1px;
+    stroke-dasharray: 4, 4;
+    pointer-events: none;
+}
+
+#toggle-select-mode-btn.active {
+    background-color: var(--sniff-accent);
+    color: white;
+}
+
+.node-group.multi-selected .node-rect {
+    stroke: var(--sniff-accent);
+    stroke-dasharray: 2, 2;
+}
+
+.visual-path.multi-selected {
+    stroke: var(--sniff-accent);
+    stroke-dasharray: 2, 2;
+    opacity: 0.8;
+}
+
+/* --- Estilos para Seleção de Arestas (Conexões) --- */
+
+.edge-path-hitbox {
+    stroke: transparent;
+    stroke-width: 20px;
+    fill: none;
+    cursor: pointer;
+}
+
+.edge-path.selected {
+    stroke: var(--sniff-accent);
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 3px var(--sniff-accent));
+}
+
+.edge-group:hover .edge-path { 
+    stroke: var(--sniff-accent);
+    opacity: 1;
 }

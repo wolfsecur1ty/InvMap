@@ -3,6 +3,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let debugMode = true;
 
     // --- Seletores e Configuração Inicial ---
+    const mapTitleInput = document.getElementById('map-title-input');
+    const saveStatusIndicator = document.getElementById('save-status-indicator');
+    const statusText = saveStatusIndicator.querySelector('.status-text');
+    const clockDisplay = document.getElementById('clock-display');
+    const versionBadge = document.getElementById('version-badge');
     const svg = document.getElementById('mindmap-svg');
     const svgContainer = document.getElementById('svg-container');
     const camera = document.getElementById('camera');
@@ -25,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Constantes de Configuração ---
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 1.5;
+    const APP_VERSION = "1.5";
 
     // --- Detecção de Toque ---
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -103,7 +109,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const fontBoldBtn = document.getElementById('font-bold-btn');
     const fontItalicBtn = document.getElementById('font-italic-btn');
     const closeFontBtn = document.getElementById('close-font-btn');
+    const toggleSelectModeBtn = document.getElementById('toggle-select-mode-btn');
+    const selectionBox = document.getElementById('selection-box');
+    const contextLayerUpBtn = document.getElementById('context-layer-up-btn');
+    const contextLayerDownBtn = document.getElementById('context-layer-down-btn');
 
+    // --- Relógio Local ---
+    function updateClock() {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        if(clockDisplay) clockDisplay.textContent = timeString;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    mapTitleInput.addEventListener('input', () => {
+        document.title = `InvMap | ${mapTitleInput.value}`;
+        setModifiedStatus(true);
+    });
+
+    versionBadge.textContent = `v${APP_VERSION}`;
 
     // --- Sistema de Notificações ---
     const notificationContainer = document.getElementById('notification-container');
@@ -166,7 +191,9 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         edges: {},
         selectedNodeId: "root",
+        selectedEdgeId: null,
         hoveredNodeId: null,
+        controlsTargetNodeId: null,
         dragging: false, draggedNodeId: null, dragOffset: { x: 0, y: 0 },
         panning: false, lastMousePos: { x: 0, y: 0 },
         cameraPos: { x: 0, y: 0 }, zoom: 1,
@@ -180,7 +207,14 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedVisualId: null,
         draggingHandle: null,
         resizingShape: null,
-        justFinishedHandleDrag: false
+        justFinishedHandleDrag: false,
+        clipboard: null,
+        selectedElements: new Set(),
+        isSelectionMode: false,
+        selectionBoxStart: null,
+        dragStartRaw: { x: 0, y: 0 },
+        hasMovedDuringDrag: false,
+        justFinishedBoxSelection: false
     };
 
     // --- Funções Auxiliares de Coordenadas ---
@@ -247,7 +281,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setModifiedStatus(status) {
-        if(status){if(!state.isModified){state.isModified=true;}}else{if(state.isModified){state.isModified=false;}}
+        if (status) {
+            if (!state.isModified) {
+                state.isModified = true;
+                if(saveStatusIndicator) {
+                    saveStatusIndicator.classList.add('modified');
+                    statusText.textContent = "Modificado";
+                }
+            }
+        } else {
+            if (state.isModified) {
+                state.isModified = false;
+                if(saveStatusIndicator) {
+                    saveStatusIndicator.classList.remove('modified');
+                    statusText.textContent = "Salvo";
+                }
+            }
+        }
     }
 
     // --- Lógica de Renderização e UI ---
@@ -279,12 +329,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!sourceNode) return;
 
         let targetX, targetY;
-        let targetH = 0; // Altura para calcular âncora
         
         if (targetNode) {
             targetX = targetNode.x;
             targetY = targetNode.y;
-            targetH = targetNode.height;
         } else {
             const svgPoint = getSVGPoint(cursorX, cursorY);
             targetX = svgPoint.x;
@@ -299,14 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetY > sourceNode.y + 50) { sourceAnchor = 'bottom'; targetAnchor = 'top'; }
 
         const startPoint = getAnchorPoint(sourceNode, sourceAnchor);
-        
-        // Se tiver nó alvo, calcula âncora real. Se for mouse, usa a posição direta.
-        let endPoint = { x: targetX, y: targetY };
-        if (targetNode) {
-            endPoint = getAnchorPoint(targetNode, targetAnchor);
-        }
+        let endPoint = targetNode ? getAnchorPoint(targetNode, targetAnchor) : { x: targetX, y: targetY };
 
-        // Calcula a curva Bezier
+        // Cálculo Bezier
         const sx = startPoint.x, sy = startPoint.y, tx = endPoint.x, ty = endPoint.y;
         const dist = Math.sqrt(Math.pow(tx - sx, 2) + Math.pow(ty - sy, 2));
         const curveFactor = Math.min(100, Math.max(20, dist * 0.4));
@@ -319,17 +362,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sourceAnchor === 'right') cp1x += curveFactor;
 
         if (targetNode) {
-             if (targetAnchor === 'top') cp2y -= curveFactor;
-             if (targetAnchor === 'bottom') cp2y += curveFactor;
-             if (targetAnchor === 'left') cp2x -= curveFactor;
-             if (targetAnchor === 'right') cp2x += curveFactor;
+            if (targetAnchor === 'top') cp2y -= curveFactor;
+            if (targetAnchor === 'bottom') cp2y += curveFactor;
+            if (targetAnchor === 'left') cp2x -= curveFactor;
+            if (targetAnchor === 'right') cp2x += curveFactor;
         } else {
-             if (targetX < sx) cp2x += curveFactor; else cp2x -= curveFactor;
+            if (targetX < sx) cp2x += curveFactor; else cp2x -= curveFactor;
         }
 
         const d = `M ${sx} ${sy} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${tx} ${ty}`;
 
-        // Desenha ou atualiza o path
         let previewPath = document.getElementById('link-preview-path');
         if (!previewPath) {
             previewPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -495,6 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             foreignObject.appendChild(htmlContent);
             group.appendChild(foreignObject);
+            if (state.selectedElements.has(nodeData.id)) group.classList.add('multi-selected');
         }
         nodesLayer.appendChild(group);
     }
@@ -667,11 +710,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderEdge(edgeData) {
         const svgNS = "http://www.w3.org/2000/svg";
+        
+        const group = document.createElementNS(svgNS, "g");
+        group.setAttribute("class", "edge-group");
+        group.dataset.id = edgeData.id;
+
         const path = document.createElementNS(svgNS, "path");
+        const hitbox = document.createElementNS(svgNS, "path");
+
+        const d = calculateCurvedPath(edgeData);
+
         path.setAttribute("id", edgeData.id);
         path.setAttribute("class", "edge-path");
-        path.setAttribute("d", calculateCurvedPath(edgeData));
-        edgesLayer.appendChild(path);
+        path.setAttribute("d", d);
+        if (state.selectedEdgeId === edgeData.id) path.classList.add('selected');
+
+        hitbox.setAttribute("id", edgeData.id + "-hitbox");
+        hitbox.setAttribute("class", "edge-path-hitbox");
+        hitbox.setAttribute("d", d);
+        hitbox.dataset.edgeId = edgeData.id;
+
+        group.appendChild(hitbox);
+        group.appendChild(path);
+        edgesLayer.appendChild(group);
     }
 
     function renderVisual(visualData) {
@@ -691,12 +752,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (visualData.type === 'arrow') {
             visualPath.setAttribute("marker-end", "url(#arrowhead)");
         }
+        if (state.selectedElements.has(visualData.id)) visualPath.classList.add('multi-selected');
 
         // Configura a hitbox
         hitBoxPath.setAttribute("id", visualData.id + "-hitbox");
         hitBoxPath.setAttribute("class", "visual-path-hitbox");
         hitBoxPath.setAttribute("d", pathData);
-        hitBoxPath.dataset.visualId = visualData.id; 
+        hitBoxPath.dataset.visualId = visualData.id;
 
         visualsLayer.appendChild(hitBoxPath);
         visualsLayer.appendChild(visualPath);
@@ -728,8 +790,13 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const edgeId in state.edges) {
             const edge = state.edges[edgeId];
             if (edge.source === nodeId || edge.target === nodeId) {
+                const newD = calculateCurvedPath(edge);
+                
                 const pathElement = document.getElementById(edge.id);
-                if (pathElement) pathElement.setAttribute("d", calculateCurvedPath(edge));
+                if (pathElement) pathElement.setAttribute("d", newD);
+
+                const hitboxElement = document.getElementById(edge.id + "-hitbox");
+                if (hitboxElement) hitboxElement.setAttribute("d", newD);
             }
         }
     }
@@ -780,7 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const yOffset = 15; // Distância (em pixels) acima do nó
 
         // Posição alvo: acima do canto direito do nó
-        const menuX = nodeRect.right + 35;
+        const menuX = nodeRect.right + 45;
         const menuY = nodeRect.top - yOffset;
 
         contextMenuContainer.style.left = `${menuX}px`;
@@ -875,6 +942,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function showNodeControls(node) {
         if (!node) return;
 
+        if (state.dragging || state.panning) return;
+
+        state.controlsTargetNodeId = node.id;
+
         contextColorBtn.style.display = 'none';
         contextSizeBtn.style.display = 'none';
         contextFontBtn.style.display = 'none';
@@ -884,11 +955,15 @@ document.addEventListener('DOMContentLoaded', () => {
             addControlsContainer.classList.remove('visible');
             contextLinkBtn.style.display = 'none';
             contextDeleteBtn.style.display = 'inline-flex';
+            contextLayerUpBtn.style.display = 'inline-flex';
+            contextLayerDownBtn.style.display = 'inline-flex';
         } else {
             updateAddControlsPosition(node);
             addControlsContainer.classList.add('visible');
             contextLinkBtn.style.display = 'inline-flex';
             contextDeleteBtn.style.display = 'inline-flex';
+            contextLayerUpBtn.style.display = 'inline-flex';
+            contextLayerDownBtn.style.display = 'inline-flex';
         }
 
         switch (node.type) {
@@ -906,6 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateContextMenuPosition(node);
+        addControlsContainer.classList.add('visible');
         contextMenuContainer.classList.add('visible');
     }
 
@@ -922,8 +998,16 @@ document.addEventListener('DOMContentLoaded', () => {
         contextFontBtn.style.display = 'none';
         contextIconBtn.style.display = 'none';
 
+        contextLayerUpBtn.style.display = 'inline-flex';
+        contextLayerDownBtn.style.display = 'inline-flex';
         contextDeleteBtn.style.display = 'inline-flex';
         contextColorBtn.style.display = 'inline-flex';
+
+        if (state.selectedEdgeId) {
+            contextColorBtn.style.display = 'none';
+        } else {
+            contextColorBtn.style.display = 'inline-flex';
+        }
 
         contextMenuContainer.classList.add('visible');
     }
@@ -935,7 +1019,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!contextMenuContainer.classList.contains('visible')) {
                 contextLinkBtn.style.display = 'inline-flex';
                 contextDeleteBtn.style.display = 'inline-flex';
-                
+                contextLayerUpBtn.style.display = 'none';
+                contextLayerDownBtn.style.display = 'none';
                 contextColorBtn.style.display = 'none';
                 contextSizeBtn.style.display = 'none';
                 contextFontBtn.style.display = 'none';
@@ -944,9 +1029,106 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 200);
     }
 
+    function clearSelection(shouldRender = true) {
+        if (state.selectedNodeId) document.getElementById(state.selectedNodeId)?.classList.remove('selected');
+        if (state.selectedVisualId) document.getElementById(state.selectedVisualId)?.classList.remove('selected');
+        if (state.selectedEdgeId) document.getElementById(state.selectedEdgeId)?.classList.remove('selected');
+
+        state.selectedElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.remove('multi-selected');
+                el.classList.remove('selected'); 
+            }
+        });
+
+        state.selectedEdgeId = null;
+        state.selectedNodeId = null;
+        state.selectedVisualId = null;
+        state.selectedElements.clear();
+        
+        hideNodeControls();
+        clearHandles();
+
+        if (shouldRender) render();
+    }
+
+    function updateSelectionBox(startSVG, currentSVG) {
+        const x = Math.min(startSVG.x, currentSVG.x);
+        const y = Math.min(startSVG.y, currentSVG.y);
+        const width = Math.abs(currentSVG.x - startSVG.x);
+        const height = Math.abs(currentSVG.y - startSVG.y);
+
+        selectionBox.setAttribute('x', x);
+        selectionBox.setAttribute('y', y);
+        selectionBox.setAttribute('width', width);
+        selectionBox.setAttribute('height', height);
+        selectionBox.style.display = 'block';
+
+        return { x, y, width, height };
+    }
+
+    function selectElementsInBox(box) {
+        state.selectedElements.clear();
+        state.selectedNodeId = null;
+
+        for (const id in state.nodes) {
+            const node = state.nodes[id];
+            if (node.x >= box.x && node.x <= box.x + box.width &&
+                node.y >= box.y && node.y <= box.y + box.height) {
+                state.selectedElements.add(id);
+            }
+        }
+
+        for (const id in state.visuals) {
+            const vis = state.visuals[id];
+            const vx = vis.x !== undefined ? vis.x : vis.x1;
+            const vy = vis.y !== undefined ? vis.y : vis.y1;
+            
+            if (vx >= box.x && vx <= box.x + box.width &&
+                vy >= box.y && vy <= box.y + box.height) {
+                state.selectedElements.add(id);
+            }
+        }
+
+        render();
+    }
+
+    function getClipboardBounds(clipboard) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let hasItems = false;
+
+        clipboard.nodes.forEach(n => {
+            minX = Math.min(minX, n.x - n.width/2);
+            maxX = Math.max(maxX, n.x + n.width/2);
+            minY = Math.min(minY, n.y - n.height/2);
+            maxY = Math.max(maxY, n.y + n.height/2);
+            hasItems = true;
+        });
+
+        clipboard.visuals.forEach(v => {
+            const vx = v.x !== undefined ? v.x : v.x1;
+            const vy = v.y !== undefined ? v.y : v.y1;
+            minX = Math.min(minX, vx);
+            maxX = Math.max(maxX, vx);
+            minY = Math.min(minY, vy);
+            maxY = Math.max(maxY, vy);
+            hasItems = true;
+        });
+
+        if (!hasItems) return { x: 0, y: 0, w: 0, h: 0, cx: 0, cy: 0 };
+        return {
+            x: minX, y: minY,
+            w: maxX - minX, h: maxY - minY,
+            cx: minX + (maxX - minX) / 2, // Centro X
+            cy: minY + (maxY - minY) / 2  // Centro Y
+        };
+    }
+
     let hideTimeout;
     svg.addEventListener('mouseover', (e) => {
         if (state.selectedNodeId) return;
+        if (state.dragging || state.panning) return;
         const targetNodeGroup = e.target.closest('.node-group');
         if (targetNodeGroup) {
             clearTimeout(hideTimeout);
@@ -981,70 +1163,60 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     svg.addEventListener('click', (e) => {
+        if (state.hasMovedDuringDrag) {
+            state.hasMovedDuringDrag = false;
+            return;
+        }
         if (state.justFinishedHandleDrag) {
             state.justFinishedHandleDrag = false;
             return;
         }
+        if (state.justFinishedBoxSelection) {
+            state.justFinishedBoxSelection = false;
+            return; 
+        }
 
         const clickedNodeGroup = e.target.closest('.node-group');
         const clickedVisualPath = e.target.closest('.visual-path-hitbox');
+        const clickedEdgeHitbox = e.target.closest('.edge-path-hitbox');
 
         // --- LÓGICA DO MODO DE LIGAÇÃO ---
-        if (state.linkingFromNodeId && (clickedNodeGroup || clickedVisualPath)) {
-            // VERIFICAÇÃO 1: Clicou em um NÓ VISUAL (não conectável)
-            if (clickedNodeGroup && (clickedNodeGroup.classList.contains('sticker-node') || clickedNodeGroup.classList.contains('text-sticker-node') || clickedNodeGroup.classList.contains('shape-node'))) {
-                showNotification('Não é possível conectar a este elemento.', 'warning');
-                state.linkingFromNodeId = null;
-                svgContainer.classList.remove('linking-mode');
-                removeLinkPreview();
-                return;
-            }
-
-            // VERIFICAÇÃO 2: Clicou em uma LINHA/SETA (não conectável)
-            if (clickedVisualPath) {
-                showNotification('Não é possível conectar a um elemento visual.', 'warning');
-                state.linkingFromNodeId = null;
-                svgContainer.classList.remove('linking-mode');
-                removeLinkPreview();
-                return;
-            }
-
-            // VERIFICAÇÃO 3: Clicou em um NÓ VÁLIDO (para conectar)
+        if (state.linkingFromNodeId) {
             if (clickedNodeGroup) {
-                const sourceNodeId = state.linkingFromNodeId;
-                const targetNodeId = clickedNodeGroup.id;
-
-                if (sourceNodeId === targetNodeId) { // Impede auto-conexão
+                if (clickedNodeGroup.classList.contains('sticker-node') || clickedNodeGroup.classList.contains('text-sticker-node') || clickedNodeGroup.classList.contains('shape-node')) {
+                    showNotification('Não é possível conectar a este elemento.', 'warning');
                     state.linkingFromNodeId = null;
                     svgContainer.classList.remove('linking-mode');
+                    removeLinkPreview();
                     return;
                 }
+                const sourceNodeId = state.linkingFromNodeId;
+                const targetNodeId = clickedNodeGroup.id;
+                if (sourceNodeId === targetNodeId) return;
 
+                // Cria Conexão
                 const newEdgeId = 'edge_' + Date.now();
                 const sourceNode = state.nodes[sourceNodeId];
                 const targetNode = state.nodes[targetNodeId];
+                
+                // Recalcula âncoras
                 let anchors = { source: 'right', target: 'left' };
-                if (targetNode.x < sourceNode.x) { anchors = { source: 'left', target: 'right' }; }
-                if (targetNode.y < sourceNode.y - 50) { anchors = { source: 'top', target: 'bottom' }; }
-                if (targetNode.y > sourceNode.y + 50) { anchors = { source: 'bottom', target: 'top' }; }
+                if (targetNode.x < sourceNode.x) anchors = { source: 'left', target: 'right' };
+                if (targetNode.y < sourceNode.y - 50) anchors = { source: 'top', target: 'bottom' };
+                if (targetNode.y > sourceNode.y + 50) anchors = { source: 'bottom', target: 'top' };
 
                 state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
-
                 setModifiedStatus(true);
-                state.linkingFromNodeId = null;
-                svgContainer.classList.remove('linking-mode');
-                removeLinkPreview();
                 render();
-                return;
-            }
-        } else if (state.linkingFromNodeId) {
-            // Se estava no modo de ligação e clicou no fundo, cancela
+            } 
+            
             state.linkingFromNodeId = null;
             svgContainer.classList.remove('linking-mode');
             removeLinkPreview();
             return;
         }
 
+        // --- INTERAÇÃO COM IMAGENS ---
         const viewBtn = e.target.closest('.view-image-btn');
         if (viewBtn) {
             const nodeGroup = e.target.closest('.node-group');
@@ -1059,29 +1231,103 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (state.selectedNodeId) {
-            document.getElementById(state.selectedNodeId)?.classList.remove('selected');
-            state.selectedNodeId = null;
+        if (!e.shiftKey) {
+            clearSelection(false);
         }
-        if (state.selectedVisualId) {
-            document.getElementById(state.selectedVisualId)?.classList.remove('selected');
-            state.selectedVisualId = null;
-        }
-        hideNodeControls();
-        clearHandles();
-        
+
+        // --- SELEÇÃO DE ELEMENTOS ---
         if (clickedNodeGroup) {
-            state.selectedNodeId = clickedNodeGroup.id;
-            state.hoveredNodeId = clickedNodeGroup.id;
-            clickedNodeGroup.classList.add('selected');
-            showNodeControls(state.nodes[state.selectedNodeId]); 
-            if (state.nodes[state.selectedNodeId].type === 'shape') drawShapeHandles(state.selectedNodeId);
+            const nodeId = clickedNodeGroup.id;
+
+            if (e.shiftKey) {
+                if (state.selectedElements.has(nodeId)) {
+                    state.selectedElements.delete(nodeId);
+                    clickedNodeGroup.classList.remove('multi-selected');
+                    
+                    if (state.selectedNodeId === nodeId) {
+                        clickedNodeGroup.classList.remove('selected');
+                        
+                        if (state.selectedElements.size > 0) {
+                            const nextId = Array.from(state.selectedElements)[0];
+                            state.selectedNodeId = nextId;
+                            document.getElementById(nextId)?.classList.add('selected');
+                            showNodeControls(state.nodes[nextId]);
+                        } else {
+                            state.selectedNodeId = null;
+                            hideNodeControls();
+                        }
+                    }
+                } else {
+                    state.selectedElements.add(nodeId);
+                    clickedNodeGroup.classList.add('multi-selected');
+                    
+                    if (state.selectedNodeId && state.selectedNodeId !== nodeId) {
+                        state.selectedElements.add(state.selectedNodeId);
+                        document.getElementById(state.selectedNodeId)?.classList.add('multi-selected');
+                    }
+                    
+                    state.selectedNodeId = nodeId;
+                    clickedNodeGroup.classList.add('selected');
+                    showNodeControls(state.nodes[state.selectedNodeId]);
+                }
+            } else {
+                state.selectedNodeId = nodeId;
+                clickedNodeGroup.classList.add('selected');
+                showNodeControls(state.nodes[state.selectedNodeId]); 
+            }
+            
+            state.hoveredNodeId = nodeId;
+            
+            if (state.selectedNodeId) {
+                showNodeControls(state.nodes[state.selectedNodeId]); 
+                if (state.nodes[state.selectedNodeId].type === 'shape') drawShapeHandles(state.selectedNodeId);
+            } else {
+                hideNodeControls();
+            }
+        
         } else if (clickedVisualPath) {
             const visualId = clickedVisualPath.dataset.visualId;
-            state.selectedVisualId = visualId;
-            document.getElementById(visualId)?.classList.add('selected');
-            showVisualControls(e);
-            drawLineHandles(visualId);
+            const visualPathEl = document.getElementById(visualId);
+            
+            if (e.shiftKey) {
+                if (state.selectedElements.has(visualId)) {
+                    state.selectedElements.delete(visualId);
+                    if (visualPathEl) visualPathEl.classList.remove('multi-selected');
+                    
+                    if (state.selectedVisualId === visualId) {
+                        state.selectedVisualId = null;
+                        if (visualPathEl) visualPathEl.classList.remove('selected');
+                    }
+                } else {
+                    state.selectedElements.add(visualId);
+                    if (visualPathEl) visualPathEl.classList.add('multi-selected');
+                    state.selectedVisualId = visualId;
+                    if (visualPathEl) visualPathEl.classList.add('selected');
+                }
+            } else {
+                state.selectedVisualId = visualId;
+                if (visualPathEl) visualPathEl.classList.add('selected');
+            }
+            
+            if (state.selectedVisualId) {
+                showVisualControls(e);
+                drawLineHandles(visualId);
+            }
+
+        } else if (clickedEdgeHitbox) { 
+            state.selectedNodeId = null; 
+            state.selectedVisualId = null;
+            
+            document.querySelectorAll('.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+            state.selectedElements.clear(); 
+
+            const edgeId = clickedEdgeHitbox.dataset.edgeId;
+            state.selectedEdgeId = edgeId;
+            const edgeElement = document.getElementById(edgeId);
+            if (edgeElement) edgeElement.classList.add('selected');
+            showVisualControls(e); 
+        } else {
+            hideNodeControls();
         }
     });
 
@@ -1117,6 +1363,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function handleMouseDown(e) {
+        state.dragStartRaw = { x: e.clientX, y: e.clientY };
+        state.hasMovedDuringDrag = false;
         if (state.isDrawingVisual) {
             e.preventDefault();
             const startPoint = getSVGPoint(e.clientX, e.clientY);
@@ -1142,7 +1390,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Lógica de redimensionamento para shapes
         const resizeHandle = e.target.closest('.resize-handle');
         if (resizeHandle) {
             e.preventDefault();
@@ -1165,10 +1412,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideNodeControls();
                 return;
             }
-    }
+        }
 
         const handle = e.target.closest('.handle-circle');
-
         if (handle) {
             e.preventDefault();
             const visualId = handle.dataset.visualId;
@@ -1184,27 +1430,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const targetNodeGroup = e.target.closest('.node-group');
         const targetVisualPath = e.target.closest('.visual-path-hitbox');
+        const targetHandle = e.target.closest('.handle-circle') || e.target.closest('.resize-handle');
 
-        if (targetNodeGroup || targetVisualPath) {
+        if ((state.isSelectionMode || e.shiftKey) && !targetNodeGroup && !targetVisualPath && !targetHandle) {
             e.preventDefault();
-            if (targetNodeGroup) {
-                hideNodeControls();
-                state.dragging = true;
-                state.draggedNodeId = targetNodeGroup.id;
-                const mousePos = getSVGPoint(e.clientX, e.clientY);
-                const nodePos = state.nodes[state.draggedNodeId];
-                state.dragOffset.x = mousePos.x - nodePos.x;
-                state.dragOffset.y = mousePos.y - nodePos.y;
-                setModifiedStatus(true);
+            const pos = getSVGPoint(e.clientX, e.clientY);
+            state.selectionBoxStart = pos;
+            
+            state.panning = false; 
+            
+            if (!e.shiftKey) {
+                if (typeof clearSelection === 'function') {
+                    clearSelection();
+                } else {
+                    state.selectedElements.clear();
+                    state.selectedNodeId = null;
+                    hideNodeControls();
+                    render();
+                }
             }
-        } else {
+            return;
+        }
+
+        if (targetNodeGroup) {
+            e.preventDefault();
+            hideNodeControls();
+            state.dragging = true;
+            state.draggedNodeId = targetNodeGroup.id;
+            const mousePos = getSVGPoint(e.clientX, e.clientY);
+            const nodePos = state.nodes[state.draggedNodeId];
+            state.dragOffset.x = mousePos.x - nodePos.x;
+            state.dragOffset.y = mousePos.y - nodePos.y;
+            setModifiedStatus(true);
+            return;
+        } 
+        
+        if (!targetVisualPath) {
             state.panning = true;
             state.lastMousePos = { x: e.clientX, y: e.clientY };
             clearHandles();
         }
-    };
+    }
 
     function handleMouseMove(e) {
+        // Lógica de seleção de caixa - Atualização
+        if (state.isSelectionMode && state.selectionBoxStart) {
+            e.preventDefault();
+            const currentPos = getSVGPoint(e.clientX, e.clientY);
+            updateSelectionBox(state.selectionBoxStart, currentPos);
+            return;
+        }
+
         if (state.isDrawingVisual && state.tempVisual && state.dragging) {
             e.preventDefault();
             const currentPoint = getSVGPoint(e.clientX, e.clientY);
@@ -1310,18 +1586,71 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Arrastar Nós - Multi-Seleção
         if (state.dragging && state.draggedNodeId) {
             e.preventDefault();
-            const node = state.nodes[state.draggedNodeId];
+            
+            const moveDist = Math.hypot(e.clientX - state.dragStartRaw.x, e.clientY - state.dragStartRaw.y);
+            if (moveDist > 5) {
+                state.hasMovedDuringDrag = true;
+            }
+
             const mousePos = getSVGPoint(e.clientX, e.clientY);
-            node.x = mousePos.x - state.dragOffset.x;
-            node.y = mousePos.y - state.dragOffset.y;
+            const mainNode = state.nodes[state.draggedNodeId];
+            
+            let newX = mousePos.x - state.dragOffset.x;
+            let newY = mousePos.y - state.dragOffset.y;
+
+            if (e.shiftKey) {
+                const gridSize = 25;
+                newX = Math.round(newX / gridSize) * gridSize;
+                newY = Math.round(newY / gridSize) * gridSize;
+            }
+
+            const dx = newX - mainNode.x;
+            const dy = newY - mainNode.y;
+
+            mainNode.x = newX;
+            mainNode.y = newY;
+            
             const nodeElement = document.getElementById(state.draggedNodeId);
             if (nodeElement) {
-                nodeElement.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+                nodeElement.setAttribute("transform", `translate(${mainNode.x}, ${mainNode.y})`);
                 updateConnectedEdges(state.draggedNodeId);
-                if (state.selectedNodeId === state.draggedNodeId) updateAddControlsPosition(node);
+                if (state.selectedNodeId === state.draggedNodeId) updateAddControlsPosition(mainNode);
             }
+
+            const isMainNodeSelected = state.selectedElements.has(state.draggedNodeId) || state.selectedNodeId === state.draggedNodeId;
+            
+            if (isMainNodeSelected) {
+                state.selectedElements.forEach(id => {
+                    if (id === state.draggedNodeId) return;
+
+                    if (state.nodes[id]) {
+                        const node = state.nodes[id];
+                        node.x += dx;
+                        node.y += dy;
+                        
+                        const el = document.getElementById(id);
+                        if (el) el.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+                        updateConnectedEdges(id);
+                    } else if (state.visuals[id]) {
+                        const vis = state.visuals[id];
+                        if (vis.x1 !== undefined) {
+                            vis.x1 += dx; vis.y1 += dy;
+                            vis.x2 += dx; vis.y2 += dy;
+                            const el = document.getElementById(id);
+                            const hb = document.getElementById(id + "-hitbox");
+                            const d = `M ${vis.x1} ${vis.y1} L ${vis.x2} ${vis.y2}`;
+                            if(el) el.setAttribute("d", d);
+                            if(hb) hb.setAttribute("d", d);
+                        } else { // Shape
+                            vis.x += dx; vis.y += dy;
+                        }
+                    }
+                });
+            }
+
             setModifiedStatus(true);
             return;
         }
@@ -1347,6 +1676,33 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function handleMouseUp(e) {
+        // Lógica de seleção de caixa - Finalização
+        if (state.selectionBoxStart) {
+            const currentPos = getSVGPoint(e.clientX, e.clientY);
+            const box = updateSelectionBox(state.selectionBoxStart, currentPos);
+            
+            if (box.width > 5 || box.height > 5) {
+                selectElementsInBox(box);
+                state.justFinishedBoxSelection = true;
+            } else {
+                if (!e.shiftKey && state.isSelectionMode) {
+                    // Mantém comportamento
+                }
+            }
+
+            state.selectionBoxStart = null;
+            selectionBox.style.display = 'none';
+            selectionBox.setAttribute('width', 0);
+            selectionBox.setAttribute('height', 0);
+
+            if (state.isSelectionMode) {
+                state.isSelectionMode = false;
+                toggleSelectModeBtn.classList.remove('active');
+                svgContainer.style.cursor = 'grab';
+            }
+            return;
+        }
+
         if (state.isDrawingVisual && state.tempVisual) {
             state.visuals[state.tempVisual.id] = { ...state.tempVisual };
 
@@ -1911,11 +2267,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.target.closest('.add-node-context-btn');
         if (target) {
             const direction = target.dataset.direction;
-            const parentId = state.hoveredNodeId || state.selectedNodeId;
+            const parentId = state.controlsTargetNodeId; 
             const parentNode = state.nodes[parentId];
             if (!parentNode) return;
-            const newNodeId = 'node_' + Date.now();
-            const newEdgeId = 'edge_' + Date.now();
+            const newNodeId = 'node_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            const newEdgeId = 'edge_' + Date.now() + Math.random().toString(36).substr(2, 5);
             let newNodePos = { x: parentNode.x, y: parentNode.y };
             const offsetWidth = (parentNode.width / 2) + 75 + 30;
             const offsetHeight = (parentNode.height / 2) + 25 + 30;
@@ -1955,29 +2311,40 @@ document.addEventListener('DOMContentLoaded', () => {
     contextLinkBtn.addEventListener('click', startLinkingMode);
 
     function deleteSelectedItem() {
-        const nodeIdToRemove = state.hoveredNodeId || state.selectedNodeId;
-        const visualIdToRemove = state.selectedVisualId;
-        if (nodeIdToRemove && nodeIdToRemove !== "root") {
-            delete state.nodes[nodeIdToRemove];
-            for (const edgeId in state.edges) {
-                if (state.edges[edgeId].source === nodeIdToRemove || state.edges[edgeId].target === nodeIdToRemove) {
-                    delete state.edges[edgeId];
-                }
-            }
-            if (state.selectedNodeId === nodeIdToRemove) state.selectedNodeId = null;
-            state.hoveredNodeId = null;
-            hideNodeControls();
+        const idsToDelete = new Set(state.selectedElements);
+        if (state.selectedNodeId) idsToDelete.add(state.selectedNodeId);
+        if (state.selectedVisualId) idsToDelete.add(state.selectedVisualId);
+        if (state.hoveredNodeId && idsToDelete.size === 0 && !state.selectedEdgeId) {
+            idsToDelete.add(state.hoveredNodeId);
+        }
+        if (state.selectedEdgeId && idsToDelete.size === 0) {
+            delete state.edges[state.selectedEdgeId];
+            state.selectedEdgeId = null;
+            clearSelection();
             setModifiedStatus(true);
             render();
-        } else if (visualIdToRemove) {
-            delete state.visuals[visualIdToRemove];
-            state.selectedVisualId = null;
-            setModifiedStatus(true);
-            render();
-        } else if (nodeIdToRemove === "root") {
-            showNotification('O nó principal não pode ser removido.', 'error');
+            showNotification('Conexão removida.', 'info');
             return;
         }
+
+        if (idsToDelete.size === 0) return;
+
+        idsToDelete.forEach(id => {
+            if (state.nodes[id]) delete state.nodes[id];
+            else if (state.visuals[id]) delete state.visuals[id];
+        });
+
+        for (const edgeId in state.edges) {
+            const edge = state.edges[edgeId];
+            if (!state.nodes[edge.source] || !state.nodes[edge.target]) {
+                delete state.edges[edgeId];
+            }
+        }
+
+        clearSelection();
+        setModifiedStatus(true);
+        render();
+        showNotification('Itens removidos.', 'info');
     }
     removeNodeBtn.addEventListener('click', deleteSelectedItem);
     contextDeleteBtn.addEventListener('click', deleteSelectedItem);
@@ -1996,13 +2363,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Botão: Salvar como .json (sem criptografia)
     saveUnencryptedBtn.addEventListener('click', () => {
-        const dataToSave = { nodes: state.nodes, edges: state.edges, visuals: state.visuals };
+        const dataToSave = {
+            meta: { title: mapTitleInput.value, version: APP_VERSION },
+            nodes: state.nodes,
+            edges: state.edges,
+            visuals: state.visuals
+        };
         const jsonString = JSON.stringify(dataToSave, null, 2);
+        const safeName = mapTitleInput.value.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'invmap';
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'meu_mapa.json';
+        a.download = `${safeName}.json`;
         a.click();
         URL.revokeObjectURL(url);
         saveOptionsModal.style.display = 'none';
@@ -2764,7 +3137,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     e.preventDefault();
                     loadFileInput.click();
                     break;
+                case 'c': // Copiar
+                    e.preventDefault();
+                    copySelection();
+                    break;
+                case 'v': // Colar
+                    e.preventDefault();
+                    pasteSelection();
+                    break;
+                case 'd': // Duplicar
+                    e.preventDefault();
+                    duplicateSelection();
+                    break;
             }
+        }
+
+        // Atalhos de Layer (Shift + Setas)
+        if (e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveLayer('up');
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveLayer('down');
+            }
+        }
+        
+        // Atalho para ativar modo seleção
+        if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 's') {
+             toggleSelectModeBtn.click();
         }
     });
 
@@ -2784,7 +3185,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Lógica do Modal de Exportação ---
 
     exportMapBtn.addEventListener('click', () => {
-        exportFilenameInput.value = 'meu_mapa_' + new Date().toISOString().slice(0, 10);
+        const safeName = mapTitleInput.value.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        exportFilenameInput.value = `${safeName}_${new Date().toISOString().slice(0, 10)}`;
         exportModal.style.display = 'flex';
         handleFormatChange();
     });
@@ -3149,6 +3551,195 @@ document.addEventListener('DOMContentLoaded', () => {
         visualsModal.style.display = 'none';
         iconSelectorModal.style.display = 'flex';
         hideNodeControls();
+    });
+
+    // --- Funções de Copiar, Colar e Duplicar ---
+
+    function copySelection(silent = false) {
+        const idsToCopy = new Set(state.selectedElements);
+        if (state.selectedNodeId) idsToCopy.add(state.selectedNodeId);
+        if (state.selectedVisualId) idsToCopy.add(state.selectedVisualId);
+
+        if (idsToCopy.size === 0) {
+            if (!silent) showNotification('Selecione algo para copiar.', 'info');
+            return false;
+        }
+
+        const clipboardData = { nodes: [], visuals: [], edges: [] };
+
+        idsToCopy.forEach(id => {
+            if (state.nodes[id]) clipboardData.nodes.push(JSON.parse(JSON.stringify(state.nodes[id])));
+            else if (state.visuals[id]) clipboardData.visuals.push(JSON.parse(JSON.stringify(state.visuals[id])));
+        });
+
+        for (const edgeId in state.edges) {
+            const edge = state.edges[edgeId];
+            if (idsToCopy.has(edge.source) && idsToCopy.has(edge.target)) {
+                clipboardData.edges.push(JSON.parse(JSON.stringify(edge)));
+            }
+        }
+
+        state.clipboard = clipboardData;
+        if (!silent) showNotification(`${idsToCopy.size} itens copiados.`, 'success');
+        return true;
+    }
+
+    function pasteSelection(silent = false) {
+        if (!state.clipboard) return;
+
+        const screenCenterSVG = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
+        const bounds = getClipboardBounds(state.clipboard);
+        
+        let offsetX, offsetY;
+        
+        if (silent) { 
+            offsetX = 50; 
+            offsetY = 50;
+        } else {
+            offsetX = screenCenterSVG.x - bounds.cx;
+            offsetY = screenCenterSVG.y - bounds.cy;
+        }
+
+        clearSelection(); 
+        
+        const idMap = {};
+
+        state.clipboard.nodes.forEach(node => {
+            const newId = 'node_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            idMap[node.id] = newId;
+            
+            let newX, newY;
+            if (silent) {
+                 newX = node.x + offsetX;
+                 newY = node.y + offsetY;
+            } else {
+                 // Mantém a posição relativa dentro do grupo, mas move o grupo para o centro
+                 const relX = node.x - bounds.cx; 
+                 const relY = node.y - bounds.cy;
+                 newX = screenCenterSVG.x + relX;
+                 newY = screenCenterSVG.y + relY;
+            }
+
+            const newNode = { ...node, id: newId, x: newX, y: newY };
+            state.nodes[newId] = newNode;
+            state.selectedElements.add(newId);
+        });
+
+        // Colar Visuais
+        state.clipboard.visuals.forEach(vis => {
+            const newId = 'visual_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            idMap[vis.id] = newId;
+            const newVis = { ...vis, id: newId };
+            
+            let dx, dy;
+            if (silent) {
+                dx = offsetX; dy = offsetY;
+            } else {
+                dx = offsetX; 
+                dy = offsetY;
+            }
+
+            if (vis.x1 !== undefined) { 
+                newVis.x1 += dx; newVis.y1 += dy;
+                newVis.x2 += dx; newVis.y2 += dy;
+            } else { 
+                newVis.x += dx; newVis.y += dy;
+            }
+            state.visuals[newId] = newVis;
+            state.selectedElements.add(newId);
+        });
+
+        state.clipboard.edges.forEach(edge => {
+            const newSource = idMap[edge.source];
+            const newTarget = idMap[edge.target];
+            if (newSource && newTarget) {
+                const newId = 'edge_' + Date.now() + Math.random().toString(36).substr(2, 5);
+                state.edges[newId] = { ...edge, id: newId, source: newSource, target: newTarget };
+            }
+        });
+
+        setModifiedStatus(true);
+        render();
+        if (!silent) showNotification(`${state.selectedElements.size} Itens colados no centro da tela.`, 'success');
+    }
+
+    function duplicateSelection() {
+        const success = copySelection(true); 
+        if (success) {
+            pasteSelection(true);
+            showNotification(`${state.selectedElements.size} Itens duplicados.`, 'success');
+        }
+    }
+
+    toggleSelectModeBtn.addEventListener('click', () => {
+        state.isSelectionMode = !state.isSelectionMode;
+        
+        if (state.isSelectionMode) {
+            toggleSelectModeBtn.classList.add('active');
+            svgContainer.style.cursor = 'crosshair';
+            showNotification('Modo de Seleção Ativado (Arraste para selecionar)', 'info');
+            clearSelection();
+        } else {
+            toggleSelectModeBtn.classList.remove('active');
+            svgContainer.style.cursor = 'grab';
+            showNotification('Modo de Navegação (Pan)', 'info');
+        }
+    });
+
+    // --- Sistema de Layers (Z-Index) ---
+
+    function moveLayer(direction) {
+        let elementId = state.selectedNodeId || state.selectedVisualId || state.selectedEdgeId;
+        
+        if (!elementId && state.selectedElements.size > 0) {
+            // TODO: Implementar seleção múltipla
+            showNotification('Selecione um único item para mover a camada.', 'warning');
+            return;
+        }
+
+        if (!elementId) return;
+
+        let element = document.getElementById(elementId);
+        
+        if (state.selectedEdgeId) {
+            element = element.closest('.edge-group');
+        }
+
+        if (!element || !element.parentNode) return;
+
+        const parent = element.parentNode;
+
+        if (direction === 'up') {
+            const nextSibling = element.nextElementSibling;
+            if (nextSibling) {
+                parent.insertBefore(element, nextSibling.nextElementSibling);
+                setModifiedStatus(true);
+            } else {
+                showNotification('O item já está no topo da sua camada.', 'info');
+            }
+        } else if (direction === 'down') {
+            const prevSibling = element.previousElementSibling;
+            if (prevSibling) {
+                parent.insertBefore(element, prevSibling);
+                setModifiedStatus(true);
+            } else {
+                showNotification('O item já está no fundo da sua camada.', 'info');
+            }
+        }
+        
+        if (state.selectedNodeId && state.nodes[state.selectedNodeId]?.type === 'shape') {
+             drawShapeHandles(state.selectedNodeId);
+        }
+    }
+
+    contextLayerUpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveLayer('up');
+    });
+
+    contextLayerDownBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveLayer('down');
     });
 
     // --- Lógica do Menu Mobile (Toggle) ---

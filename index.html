@@ -40,15 +40,33 @@
 </head>
 <body>
     <header class="main-header">
-        <div class="header-brand">
-            <img src="imagens/InvmapLogo.png" alt="Logo do InvMap" class="header-logo">
-            <h1>InvMap</h1>
+        <div class="header-left">
+            <div class="brand-container">
+                <img src="imagens/InvmapLogo.png" alt="Logo do InvMap" class="header-logo">
+            </div>
+            <div class="map-meta-container">
+                <input type="text" id="map-title-input" class="map-title-input" value="Nova Investigação" placeholder="Nome da Investigação" spellcheck="false">
+                
+                <div class="save-status" id="save-status-indicator" title="Status do Arquivo">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Salvo</span>
+                </div>
+            </div>
         </div>
-        <div class="header-info">
+
+        <div class="header-right">
+            <div class="system-clock" title="Horário Local">
+                <i class="far fa-clock"></i>
+                <span id="clock-display">--:--</span>
+            </div>
+
+            <div class="header-divider"></div>
+
             <a href="https://github.com/wolfsecur1ty/InvMap" target="_blank" class="github-link">
-                <i class="fab fa-github"></i> GitHub
+                <i class="fab fa-github"></i> <span class="hide-mobile">GitHub</span>
             </a>
-            <span class="version-info">v1.4 (09/01/2026)</span>
+            
+            <div class="version-badge" id="version-badge">v--</div>
         </div>
     </header>
 
@@ -75,7 +93,12 @@
         <button id="context-icon-btn" title="Mudar Ícone">
             <i class="fas fa-exchange-alt"></i>
         </button>
-
+        <button id="context-layer-up-btn" title="Trazer para Frente (Shift + ↑)">
+            <i class="fas fa-arrow-up"></i>
+        </button>
+        <button id="context-layer-down-btn" title="Enviar para Trás (Shift + ↓)">
+            <i class="fas fa-arrow-down"></i>
+        </button>
         <button id="context-link-btn" title="Ligar a outro nó">
             <i class="fas fa-link"></i>
         </button>
@@ -108,6 +131,9 @@
                     </button>
                     <input type="file" id="add-sticker-input" accept="image/*" style="display: none;">
                     <span class="separator"></span>
+                    <button id="toggle-select-mode-btn" title="Modo de Seleção (S)">
+                        <i class="fas fa-mouse-pointer"></i>
+                    </button>
                     <button id="link-node-btn" title="Ligar Nós Existentes">
                         <i class="fas fa-link"></i>
                     </button>
@@ -480,6 +506,9 @@
                 <g id="edges-layer"></g>
                 <g id="visuals-layer"></g>
                 <g id="nodes-layer"></g>
+                <g id="selection-layer">
+                    <rect id="selection-box" x="0" y="0" width="0" height="0" class="selection-box" style="display: none;"></rect>
+                </g>
                 <g id="handles-layer"></g>
             </g>
         </svg>
