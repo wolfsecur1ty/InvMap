@@ -2,6 +2,23 @@
 
 Todas as mudanças notáveis no projeto InvMap serão documentadas neste arquivo.
 
+## [v2.0] - 27/03/2026
+### ✔Adicionado
+- **Configurações do Mapa:** Adicionado sistema de configurações do mapa, agora você pode deixar o mapa mais com a sua cara.
+- **Modo Privacidade:** Adicionado modo privacidade que oculta todas as informações do mapa. Agora você pode apresentar o seu mapa sem se preocupar com informações sensíveis.
+- **Auto-Save:** Adicionado sistema de auto-save (desabilitado por padrão). O usuário pode habilitar o auto-save nas configurações do mapa.
+- **Informações do Mapa:** Adicionado sistema de informações do mapa, agora você pode ver varias estatísticas e informações sobre o mapa.
+- **Modo Claro/Escuro Com Cores:** Adicionado modo claro/escuro com cores personalizáveis.
+
+### 🖊 Alterado
+- **Refatoração Completa do Visual:** O visual do mapa foi completamente refeito, agora ele é mais moderno e agradável de usar.
+- **Hierarquia da Interface:** Botões de sistema e gerenciamento de arquivos (Salvar, Exportar, etc.) foram movidos para o Header.
+
+### ⚙ Corrigido
+- **Movimentação dos Nodes:** Corrigido bug que causava desalinhamento do botão de contexto e dos botões de adicionar conexão.
+- **Stickers Defeituosos:** Corrigidos varios bugs que causavam problemas com os stickers de texto solto, forma, seta, linha e ícone.
+- **Menu Não-Adaptável:** Corrigidos varios menus que não respeitavam os limites da tela em dispositivos móveis.
+
 ## [v1.5] - 20/01/2026
 ### ✔Adicionado
 - **Alinhamento:** Adicionado sistema de alinhamento com a grid (Shift + Arrastar).

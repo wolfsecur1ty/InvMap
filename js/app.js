@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // DEBUG
-    let debugMode = true;
+    let debugMode = false;
 
     // --- Seletores e Configuração Inicial ---
     const mapTitleInput = document.getElementById('map-title-input');
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Constantes de Configuração ---
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 1.5;
-    const APP_VERSION = "1.5";
+    const APP_VERSION = "2.0";
 
     // --- Detecção de Toque ---
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -113,6 +113,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectionBox = document.getElementById('selection-box');
     const contextLayerUpBtn = document.getElementById('context-layer-up-btn');
     const contextLayerDownBtn = document.getElementById('context-layer-down-btn');
+    const saveBrowserBtn = document.getElementById('save-browser-btn');
+    const supportModal = document.getElementById('support-modal');
+    const closeSupportBtn = document.getElementById('close-support-btn');
+
+    // --- SELETORES DE INFORMAÇÃO ---
+    const infoBtn = document.getElementById('info-btn');
+    const infoModal = document.getElementById('info-modal');
+    const closeInfoBtn = document.getElementById('close-info-btn');
+    const infoNodesCount = document.getElementById('info-nodes-count');
+    const infoVisualsCount = document.getElementById('info-visuals-count');
+    const infoEdgesCount = document.getElementById('info-edges-count');
+    const infoFileSize = document.getElementById('info-file-size');
+    const infoCreatedAt = document.getElementById('info-created-at');
+    const infoUpdatedAt = document.getElementById('info-updated-at');
+
+    // --- SELETORES DE CONFIGURAÇÕES ---
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const restoreAutosaveModal = document.getElementById('restore-autosave-modal');
+    const confirmRestoreBtn = document.getElementById('confirm-restore-btn');
+    const cancelRestoreBtn = document.getElementById('cancel-restore-btn');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const storageSelect = document.getElementById('settings-storage-type');
+    const privacyToggle = document.getElementById('setting-privacy-mode');
+    const snapGridToggle = document.getElementById('setting-snap-grid');
+    const showGridToggle = document.getElementById('setting-show-grid');
+    const autosaveTypeSelect = document.getElementById('settings-autosave-type');
+    const autosaveTimeSelect = document.getElementById('settings-autosave-time');
+    const autosaveRetentionGroup = document.getElementById('autosave-retention-group');
+    const themeSelect = document.getElementById('settings-theme');
+    const customThemeOptions = document.getElementById('custom-theme-options');
+    const customPrimaryInput = document.getElementById('custom-theme-primary');
+    const customSecondaryInput = document.getElementById('custom-theme-secondary');
+    const customColorsToggle = document.getElementById('setting-custom-colors');
 
     // --- Relógio Local ---
     function updateClock() {
@@ -186,8 +220,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Gerenciamento de Estado ---
     let state = {
+        meta: {
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        },
         nodes: {
             "root": { id: "root", x: centerX, y: centerY, width: 150, height: 50, label: "Tópico Principal" }
+        },
+        settings: {
+            storageType: 'none',
+            privacyMode: false,
+            snapGrid: false,
+            showGrid: true,
+            autosaveType: 'none',
+            autosaveTime: 24,
+            theme: 'dark', // 'dark', 'light'
+            customColorsEnabled: false,
+            customPrimary: '#f95738',
+            customSecondary: '#e0e0e5'
         },
         edges: {},
         selectedNodeId: "root",
@@ -216,6 +266,129 @@ document.addEventListener('DOMContentLoaded', () => {
         hasMovedDuringDrag: false,
         justFinishedBoxSelection: false
     };
+
+    // ===================================================
+    // ||        SISTEMA DE CONFIGURAÇÕES (V2.0)        ||
+    // ===================================================
+
+    function setCookie(name, value, days) {
+        let expires = "";
+        if (days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+
+    function getCookie(name) {
+        const nameEQ = name + "=";
+        const ca = document.cookie.split(';');
+        for(let i=0; i < ca.length; i++) {
+            let c = ca[i];
+            while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+        }
+        return null;
+    }
+
+    function applySettings() {
+        storageSelect.value = state.settings.storageType;
+        privacyToggle.checked = state.settings.privacyMode;
+        snapGridToggle.checked = state.settings.snapGrid;
+        showGridToggle.checked = state.settings.showGrid;
+
+        if (state.settings.privacyMode) {
+            document.body.classList.add('privacy-mode-active');
+        } else {
+            document.body.classList.remove('privacy-mode-active');
+        }
+
+        if (!state.settings.showGrid) {
+            document.body.classList.add('hide-grid-active');
+        } else {
+            document.body.classList.remove('hide-grid-active');
+        }
+
+        if (autosaveTypeSelect) {
+            autosaveTypeSelect.value = state.settings.autosaveType || 'none';
+        }
+        if (autosaveTimeSelect) {
+            autosaveTimeSelect.value = (state.settings.autosaveTime || 24).toString();
+        }
+        
+        // Esconde o tempo de retenção se o autosave estiver desativado
+        if (autosaveRetentionGroup) {
+            if (state.settings.autosaveType === 'none' || !state.settings.autosaveType) {
+                autosaveRetentionGroup.style.display = 'none';
+            } else {
+                autosaveRetentionGroup.style.display = 'block';
+            }
+        }
+
+        if (themeSelect) themeSelect.value = state.settings.theme || 'dark';
+        if (customColorsToggle) customColorsToggle.checked = state.settings.customColorsEnabled;
+        if (customPrimaryInput) customPrimaryInput.value = state.settings.customPrimary || '#f95738';
+        if (customSecondaryInput) customSecondaryInput.value = state.settings.customSecondary || '#e0e0e5';
+
+        // Mostra ou esconde as opções de cor
+        if (customThemeOptions) {
+            customThemeOptions.style.display = state.settings.customColorsEnabled ? 'block' : 'none';
+        }
+
+        // --- APLICA O TEMA CLARO OU ESCURO ---
+        if (state.settings.theme === 'light') {
+            document.body.classList.add('light-theme');
+        } else {
+            document.body.classList.remove('light-theme');
+        }
+
+        // --- APLICA AS CORES PERSONALIZADAS (Sobrepõe os dois temas) ---
+        if (state.settings.customColorsEnabled) {
+            document.body.style.setProperty('--accent-primary', state.settings.customPrimary);
+            document.body.style.setProperty('--accent-glow', state.settings.customPrimary + '66'); 
+            document.body.style.setProperty('--accent-secondary', state.settings.customSecondary);
+        } else {
+            document.body.style.removeProperty('--accent-primary');
+            document.body.style.removeProperty('--accent-secondary');
+            document.body.style.removeProperty('--accent-glow');
+        }
+    }
+
+    function saveSettings() {
+        const settingsJSON = JSON.stringify(state.settings);
+        
+        localStorage.removeItem('invmap_settings');
+        setCookie('invmap_settings', '', -1);
+
+        if (state.settings.storageType === 'localstorage') {
+            localStorage.setItem('invmap_settings', settingsJSON);
+        } else if (state.settings.storageType === 'cookie') {
+            setCookie('invmap_settings', settingsJSON, 365);
+        }
+    }
+
+    function loadSettings() {
+        let loadedSettings = null;
+
+        const lsSettings = localStorage.getItem('invmap_settings');
+        if (lsSettings) {
+            loadedSettings = JSON.parse(lsSettings);
+        } else {
+            const cookieSettings = getCookie('invmap_settings');
+            if (cookieSettings) {
+                loadedSettings = JSON.parse(cookieSettings);
+            }
+        }
+
+        if (loadedSettings) {
+            state.settings = { ...state.settings, ...loadedSettings };
+        }
+        
+        applySettings();
+    }
+
+    loadSettings();
 
     // --- Funções Auxiliares de Coordenadas ---
     function getSVGPoint(screenX, screenY) {
@@ -282,6 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setModifiedStatus(status) {
         if (status) {
+            state.meta.updatedAt = Date.now();
             if (!state.isModified) {
                 state.isModified = true;
                 if(saveStatusIndicator) {
@@ -289,6 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusText.textContent = "Modificado";
                 }
             }
+            triggerAutosave();
         } else {
             if (state.isModified) {
                 state.isModified = false;
@@ -429,7 +604,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rect.setAttribute("x", -nodeData.width / 2);
             rect.setAttribute("y", -nodeData.height / 2);
             if (nodeData.type === 'shape') {
-                const shapeColor = nodeData.color || 'var(--sniff-text-primary)';
+                const shapeColor = nodeData.color || 'var(--text-main)';
                 rect.setAttribute("style", `stroke: ${shapeColor}; fill: transparent; stroke-width: 2px;`);
             }
             group.appendChild(rect);
@@ -532,8 +707,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     htmlContent.innerHTML = `<span class="node-label">${nodeData.label.replace(/\n/g, '<br>')}</span><textarea class="node-editor-textarea" style="display: none;">${nodeData.label}</textarea>`;
                     break;
             }
-
-            
 
             foreignObject.appendChild(htmlContent);
             group.appendChild(foreignObject);
@@ -661,8 +834,8 @@ document.addEventListener('DOMContentLoaded', () => {
             nodeData.width = newWidth;
             rect.setAttribute('width', newWidth);
             rect.setAttribute('x', -newWidth / 2);
-            foreignObject.setAttribute('width', newWidth - 10);
-            foreignObject.setAttribute('x', -(newWidth / 2) + 5);
+            foreignObject.setAttribute('width', newWidth); 
+            foreignObject.setAttribute('x', -(newWidth / 2));
 
             textarea.style.height = 'auto';
             textarea.style.height = (textarea.scrollHeight) + 'px';
@@ -670,8 +843,8 @@ document.addEventListener('DOMContentLoaded', () => {
             nodeData.height = newHeight;
             rect.setAttribute('height', newHeight);
             rect.setAttribute('y', -newHeight / 2);
-            foreignObject.setAttribute('height', newHeight - 10);
-            foreignObject.setAttribute('y', -(newHeight / 2) + 5);
+            foreignObject.setAttribute('height', newHeight);
+            foreignObject.setAttribute('y', -(newHeight / 2));
         };
         onInput();
         textarea.addEventListener('input', onInput);
@@ -844,7 +1017,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!nodeElement) return;
 
         const nodeRect = nodeElement.getBoundingClientRect();
-        const yOffset = 15; // Distância (em pixels) acima do nó
+        const yOffset = 50; // Distância (em pixels) acima do nó
 
         // Posição alvo: acima do canto direito do nó
         const menuX = nodeRect.right + 45;
@@ -852,7 +1025,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         contextMenuContainer.style.left = `${menuX}px`;
         contextMenuContainer.style.top = `${menuY}px`;
-        contextMenuContainer.style.transform = `translate(-100%, -100%)`;
+        contextMenuContainer.style.transform = `translate(-50%, -100%)`;
     }
 
     function clearHandles() {
@@ -981,7 +1154,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateContextMenuPosition(node);
-        addControlsContainer.classList.add('visible');
         contextMenuContainer.classList.add('visible');
     }
 
@@ -1132,7 +1304,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetNodeGroup = e.target.closest('.node-group');
         if (targetNodeGroup) {
             clearTimeout(hideTimeout);
-            targetNodeGroup.parentNode.appendChild(targetNodeGroup);
+            if (targetNodeGroup.parentNode.lastChild !== targetNodeGroup) {
+                targetNodeGroup.parentNode.appendChild(targetNodeGroup);
+            }
             state.hoveredNodeId = targetNodeGroup.id;
             showNodeControls(state.nodes[state.hoveredNodeId]);
         }
@@ -1381,6 +1555,7 @@ document.addEventListener('DOMContentLoaded', () => {
             path.setAttribute("id", tempId);
             path.setAttribute("class", `visual-path visual-${state.isDrawingVisual}`);
             path.setAttribute("d", `M ${startPoint.x} ${startPoint.y} L ${startPoint.x} ${startPoint.y}`);
+            path.style.stroke = 'var(--text-muted)';
             if (state.isDrawingVisual === 'arrow') {
                 path.setAttribute("marker-end", "url(#arrowhead)");
             }
@@ -1601,8 +1776,10 @@ document.addEventListener('DOMContentLoaded', () => {
             let newX = mousePos.x - state.dragOffset.x;
             let newY = mousePos.y - state.dragOffset.y;
 
-            if (e.shiftKey) {
-                const gridSize = 25;
+            const useSnap = state.settings.snapGrid ? !e.shiftKey : e.shiftKey;
+            const gridSize = 25;
+            
+            if (useSnap) {
                 newX = Math.round(newX / gridSize) * gridSize;
                 newY = Math.round(newY / gridSize) * gridSize;
             }
@@ -1667,6 +1844,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.panning) {
             const dx = e.clientX - state.lastMousePos.x;
             const dy = e.clientY - state.lastMousePos.y;
+            if (state.selectedNodeId) {
+                addControlsContainer.classList.remove('visible');
+                contextMenuContainer.classList.remove('visible');
+            }
             state.cameraPos.x += dx;
             state.cameraPos.y += dy;
             updateCameraTransform();
@@ -1729,6 +1910,9 @@ document.addEventListener('DOMContentLoaded', () => {
         state.dragging = false;
         state.draggedNodeId = null;
         state.panning = false;
+        if (state.hasMovedDuringDrag && state.selectedNodeId) {
+            showNodeControls(state.nodes[state.selectedNodeId]);
+        }
         if (wasDragging && state.selectedNodeId) {
             showNodeControls(state.nodes[state.selectedNodeId]);
         }
@@ -1782,6 +1966,7 @@ document.addEventListener('DOMContentLoaded', () => {
             path.setAttribute("id", tempId);
             path.setAttribute("class", `visual-path visual-${state.isDrawingVisual}`);
             path.setAttribute("d", `M ${startPoint.x} ${startPoint.y} L ${startPoint.x} ${startPoint.y}`);
+            path.style.stroke = 'var(--text-muted)';
             if (state.isDrawingVisual === 'arrow') {
                 path.setAttribute("marker-end", "url(#arrowhead)");
             }
@@ -2361,10 +2546,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Botão: Salvar no Navegador (Manual)
+    saveBrowserBtn.addEventListener('click', async () => {
+        const dataToSave = {
+            meta: { title: mapTitleInput.value, version: APP_VERSION },
+            nodes: state.nodes,
+            edges: state.edges,
+            visuals: state.visuals
+        };
+        
+        const expiry = Date.now() + (365 * 24 * 60 * 60 * 1000); 
+        const payload = JSON.stringify({ expiry, data: dataToSave });
+
+        try {
+            await idbSave('invmap_autosave', payload);
+        } catch (e) {
+            localStorage.setItem('invmap_autosave', payload);
+        }
+        
+        setModifiedStatus(false);
+        saveOptionsModal.style.display = 'none';
+        showNotification('Mapa salvo no navegador com sucesso!', 'success');
+    });
+
     // Botão: Salvar como .json (sem criptografia)
     saveUnencryptedBtn.addEventListener('click', () => {
         const dataToSave = {
-            meta: { title: mapTitleInput.value, version: APP_VERSION },
+            meta: { title: mapTitleInput.value, version: APP_VERSION, createdAt: state.meta.createdAt, updatedAt: state.meta.updatedAt },
+            settings: state.settings,
             nodes: state.nodes,
             edges: state.edges,
             visuals: state.visuals
@@ -2405,7 +2614,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const jsonString = JSON.stringify({ nodes: state.nodes, edges: state.edges, visuals: state.visuals });
+        const jsonString = JSON.stringify({ nodes: state.nodes, settings: state.settings, edges: state.edges, visuals: state.visuals });
         const encryptedData = CryptoJS.AES.encrypt(jsonString, password).toString();
 
         const blob = new Blob([encryptedData], { type: 'text/plain' });
@@ -2431,6 +2640,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = JSON.parse(fileContent);
                 if (data && data.nodes && data.edges) {
                     state = { ...state, nodes: data.nodes, edges: data.edges, visuals: data.visuals || {} , selectedNodeId: null, hoveredNodeId: null, cameraPos: { x: 0, y: 0 }, zoom: 1 };
+                    if (data.settings) {
+                        state.settings = { ...state.settings, ...data.settings };
+                        applySettings();
+                        saveSettings();
+                    }
+                    if (data.meta) {
+                        if (data.meta.title && mapTitleInput) mapTitleInput.value = data.meta.title;
+                        state.meta.createdAt = data.meta.createdAt || Date.now();
+                        state.meta.updatedAt = data.meta.updatedAt || Date.now();
+                    }
                     hideNodeControls();
                     updateCameraTransform();
                     render();
@@ -2639,6 +2858,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(currentSelected)?.classList.add('selected');
                 state.selectedNodeId = currentSelected;
             }
+
+            setTimeout(() => {
+                supportModal.style.display = 'flex';
+            }, 1000);
         }
     }
 
@@ -2734,6 +2957,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(currentSelected)?.classList.add('selected');
                 state.selectedNodeId = currentSelected;
             }
+
+            setTimeout(() => {
+                supportModal.style.display = 'flex';
+            }, 1000);
         }
     }
 
@@ -2934,8 +3161,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(currentSelected)?.classList.add('selected');
                 state.selectedNodeId = currentSelected;
             }
+
+            setTimeout(() => {
+                supportModal.style.display = 'flex';
+            }, 1000);
         }
     }
+
+    // Fechar modal de apoio
+    closeSupportBtn.addEventListener('click', () => {
+        supportModal.style.display = 'none';
+    });
+    
+    supportModal.addEventListener('click', (e) => {
+        if (e.target === supportModal) supportModal.style.display = 'none';
+    });
 
     // --- Lógica para Adicionar Nós de Entidade ---
 
@@ -3553,6 +3793,286 @@ document.addEventListener('DOMContentLoaded', () => {
         hideNodeControls();
     });
 
+    // --- LISTENERS DE CONFIGURAÇÃO ---
+    
+    settingsBtn.addEventListener('click', () => {
+        applySettings();
+        settingsModal.style.display = 'flex';
+    });
+
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'none';
+    });
+
+    async function handleSettingChange(e) {
+        if (settingsModal.style.display !== 'flex') {
+            applySettings(); 
+            return;
+        }
+
+        const previousAutosaveType = state.settings.autosaveType;
+        
+        state.settings.storageType = storageSelect.value;
+        state.settings.privacyMode = privacyToggle.checked;
+        state.settings.snapGrid = snapGridToggle.checked;
+        state.settings.showGrid = showGridToggle.checked;
+        state.settings.autosaveType = autosaveTypeSelect.value;
+        state.settings.autosaveTime = parseInt(autosaveTimeSelect.value);
+        state.settings.theme = themeSelect.value;
+        state.settings.customColorsEnabled = customColorsToggle.checked;
+        state.settings.customPrimary = customPrimaryInput.value;
+        state.settings.customSecondary = customSecondaryInput.value;
+        
+        if (previousAutosaveType !== state.settings.autosaveType) {
+            await clearAutosave(); 
+            if (state.settings.autosaveType !== 'none') {
+                performAutosave(); 
+            }
+        }
+        
+        applySettings();
+        saveSettings();
+        
+        if (state.settings.privacyMode) {
+            showNotification('Modo Privacidade Ativado', 'info');
+        }
+    }
+
+    storageSelect.addEventListener('change', handleSettingChange);
+    privacyToggle.addEventListener('change', handleSettingChange);
+    snapGridToggle.addEventListener('change', handleSettingChange);
+    showGridToggle.addEventListener('change', handleSettingChange);
+    autosaveTypeSelect.addEventListener('change', handleSettingChange);
+    autosaveTimeSelect.addEventListener('change', handleSettingChange);
+    themeSelect.addEventListener('change', handleSettingChange);
+    customPrimaryInput.addEventListener('input', handleSettingChange); 
+    customSecondaryInput.addEventListener('input', handleSettingChange);
+    customColorsToggle.addEventListener('change', handleSettingChange);
+
+    // --- HELPER PARA INDEXEDDB (Assíncrono) ---
+    const DB_NAME = 'InvMapDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'autosave_store';
+
+    function initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            request.onerror = () => reject("Erro ao abrir IndexedDB");
+            request.onsuccess = (e) => resolve(e.target.result);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+        });
+    }
+
+    async function idbSave(key, data) {
+        const db = await initDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.put(data, key);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject();
+        });
+    }
+
+    async function idbLoad(key) {
+        const db = await initDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject();
+        });
+    }
+
+    async function idbClear(key) {
+        const db = await initDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.delete(key);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject();
+        });
+    }
+
+    // --- AUTO-SAVE ---
+    let autosaveTimeout = null;
+
+    function triggerAutosave() {
+        if (state.settings.autosaveType === 'none') return;
+        
+        if (saveStatusIndicator) {
+            saveStatusIndicator.classList.remove('modified');
+            saveStatusIndicator.classList.add('autosaving');
+            statusText.textContent = "Salvando...";
+        }
+
+        clearTimeout(autosaveTimeout);
+        autosaveTimeout = setTimeout(performAutosave, 1500);
+    }
+
+    async function performAutosave() {
+        if (!state.settings.autosaveType || state.settings.autosaveType === 'none') return;
+        const dataToSave = {
+            meta: { title: mapTitleInput.value, version: APP_VERSION, createdAt: state.meta.createdAt, updatedAt: state.meta.updatedAt },
+            nodes: state.nodes,
+            edges: state.edges,
+            visuals: state.visuals
+        };
+        
+        const expiry = Date.now() + (state.settings.autosaveTime * 60 * 60 * 1000);
+        const payload = JSON.stringify({ expiry, data: dataToSave });
+
+        try {
+            if (state.settings.autosaveType === 'indexeddb') {
+                await idbSave('invmap_autosave', payload);
+            } else if (state.settings.autosaveType === 'localstorage') {
+                localStorage.setItem('invmap_autosave', payload);
+            } else if (state.settings.autosaveType === 'cookie') {
+                setCookie('invmap_autosave', payload, state.settings.autosaveTime / 24);
+            }
+            
+            if (saveStatusIndicator) {
+                saveStatusIndicator.classList.remove('autosaving');
+                statusText.textContent = "Salvo (Auto)";
+            }
+            state.isModified = false; 
+        } catch (e) {
+            console.warn("Falha no Auto-save:", e);
+            if (saveStatusIndicator) {
+                saveStatusIndicator.classList.remove('autosaving');
+                saveStatusIndicator.classList.add('modified');
+                statusText.textContent = "Erro Auto-save";
+            }
+        }
+    }
+
+    let pendingAutosavePayload = null;
+
+    async function checkAndLoadAutosave() {
+        let payloadStr = null;
+        
+        try {
+            payloadStr = await idbLoad('invmap_autosave');
+        } catch(e) {}
+        
+        if (!payloadStr) payloadStr = localStorage.getItem('invmap_autosave');
+        if (!payloadStr) payloadStr = getCookie('invmap_autosave');
+
+        if (payloadStr) {
+            try {
+                const payload = JSON.parse(payloadStr);
+                if (Date.now() < payload.expiry) {
+                    pendingAutosavePayload = payload;
+                    restoreAutosaveModal.style.display = 'flex';
+                } else {
+                    clearAutosave(); 
+                }
+            } catch (e) {
+                clearAutosave();
+            }
+        }
+    }
+
+    confirmRestoreBtn.addEventListener('click', async () => {
+        if (pendingAutosavePayload) {
+            const data = pendingAutosavePayload.data;
+            state.nodes = data.nodes || {};
+            state.edges = data.edges || {};
+            state.visuals = data.visuals || {};
+            if (data.meta && data.meta.title && mapTitleInput) {
+                mapTitleInput.value = data.meta.title;
+            }
+            
+            if (await idbLoad('invmap_autosave').catch(()=>null)) {
+                state.settings.autosaveType = 'indexeddb';
+            } else if (localStorage.getItem('invmap_autosave')) {
+                state.settings.autosaveType = 'localstorage';
+            } else {
+                state.settings.autosaveType = 'cookie';
+            }
+            applySettings();
+
+            render();
+            showNotification("Mapa restaurado via Auto-save.", "success");
+        }
+        pendingAutosavePayload = null;
+        restoreAutosaveModal.style.display = 'none';
+        updateContextMenuPosition();
+    });
+
+    cancelRestoreBtn.addEventListener('click', () => {
+        clearAutosave();
+        pendingAutosavePayload = null;
+        restoreAutosaveModal.style.display = 'none';
+    });
+
+    async function clearAutosave() {
+        try { await idbClear('invmap_autosave'); } catch(e) {}
+        localStorage.removeItem('invmap_autosave');
+        setCookie('invmap_autosave', '', -1);
+    }
+
+    // --- MODAL DE INFORMAÇÕES E CÁLCULOS ---
+    
+    // Função mágica para converter Bytes em formato legível 🎩✨
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function formatDate(timestamp) {
+        if (!timestamp) return '-';
+        return new Date(timestamp).toLocaleString('pt-BR');
+    }
+
+    infoBtn.addEventListener('click', () => {
+        // Preenche as contagens
+        infoNodesCount.textContent = Object.keys(state.nodes).length;
+        infoVisualsCount.textContent = Object.keys(state.visuals).length;
+        infoEdgesCount.textContent = Object.keys(state.edges).length;
+        
+        // Simula o tamanho exato do arquivo gerando o JSON na memória
+        const dataToSize = {
+            meta: { title: mapTitleInput.value, version: APP_VERSION, createdAt: state.meta.createdAt, updatedAt: state.meta.updatedAt },
+            settings: state.settings,
+            nodes: state.nodes,
+            edges: state.edges,
+            visuals: state.visuals
+        };
+        const jsonString = JSON.stringify(dataToSize);
+        // O Blob descobre os bytes exatos de uma string UTF-8
+        const sizeInBytes = new Blob([jsonString]).size; 
+        
+        infoFileSize.textContent = formatBytes(sizeInBytes);
+        infoFileSize.style.color = 'var(--accent-primary)';
+        
+        // Alerta se o arquivo passar de 4MB (para avisar sobre cookies/localstorage)
+        // TODO
+
+        // Datas
+        infoCreatedAt.textContent = formatDate(state.meta.createdAt);
+        infoUpdatedAt.textContent = formatDate(state.meta.updatedAt);
+
+        infoModal.style.display = 'flex';
+    });
+
+    closeInfoBtn.addEventListener('click', () => infoModal.style.display = 'none');
+    
+    infoModal.addEventListener('click', (e) => {
+        if (e.target === infoModal) infoModal.style.display = 'none';
+    });
+
     // --- Funções de Copiar, Colar e Duplicar ---
 
     function copySelection(silent = false) {
@@ -3787,6 +4307,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Renderização Inicial ---
     render();
+    checkAndLoadAutosave();
     if (state.selectedNodeId) {
         document.getElementById(state.selectedNodeId)?.classList.add('selected');
         showNodeControls(state.nodes[state.selectedNodeId]);
