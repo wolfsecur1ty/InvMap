@@ -30,7 +30,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Constantes de Configuração ---
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 1.5;
-    const APP_VERSION = "2.0";
+    const APP_VERSION = "2.1";
+
+    const isDesktopApp = /electron/i.test(navigator.userAgent);
+    if (isDesktopApp) {
+        console.log('Modo Desktop (Electron) ativado');
+    } else {
+        console.log('Modo Web ativado');
+    }
 
     // --- Detecção de Toque ---
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -128,6 +135,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const infoCreatedAt = document.getElementById('info-created-at');
     const infoUpdatedAt = document.getElementById('info-updated-at');
 
+    // --- Seletores de Atualização ---
+    const updateModal = document.getElementById('update-modal');
+    const cancelUpdateBtn = document.getElementById('cancel-update-btn');
+    const confirmUpdateBtn = document.getElementById('confirm-update-btn');
+    const updateVersionText = document.getElementById('update-version-text');
+
     // --- SELETORES DE CONFIGURAÇÕES ---
     const settingsBtn = document.getElementById('settings-btn');
     const settingsModal = document.getElementById('settings-modal');
@@ -220,6 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Gerenciamento de Estado ---
     let state = {
+        environment: isDesktopApp ? 'desktop' : 'web',
         meta: {
             createdAt: Date.now(),
             updatedAt: Date.now()
@@ -473,6 +487,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
+    }
+
+    // ===================================================
+    // ||        FUNÇÕES EXCLUSIVAS DO DESKTOP          ||
+    // ===================================================
+
+    if (state.environment === 'desktop' && window.invmapAPI) {
+        
+        // 1. Escuta se há uma nova versão na nuvem
+        window.invmapAPI.onUpdateAvailable((newVersion) => {
+            updateVersionText.textContent = `v${newVersion}`;
+            updateModal.style.display = 'flex';
+        });
+
+        // 2. Ação de confirmar e baixar
+        confirmUpdateBtn.addEventListener('click', () => {
+            window.invmapAPI.downloadUpdate();
+            
+            confirmUpdateBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="margin-right: 8px;"></i> Baixando em segundo plano...';
+            confirmUpdateBtn.style.pointerEvents = 'none';
+            confirmUpdateBtn.style.opacity = '0.8';
+            cancelUpdateBtn.style.display = 'none';
+        });
+
+        // 3. Ação de cancelar
+        cancelUpdateBtn.addEventListener('click', () => {
+            updateModal.style.display = 'none';
+        });
     }
 
     // --- Lógica de Renderização e UI ---
