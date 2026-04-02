@@ -2,7 +2,7 @@
 
 Todas as mudanças notáveis no projeto InvMap serão documentadas neste arquivo.
 
-## [v2.1] - 01/04/2026
+## [v2.1] - 02/04/2026
 ### ✔Adicionado
 - **Detecção de Ambiente:** Adicionado sistema de detecção de ambiente, agora é possível saber se o mapa está sendo usado em modo desktop ou web.
 - **Atualização Automática (Versão Desktop):** Agora ao abrir o InvMap em modo desktop, ele verificará se há uma nova versão disponível e mostrará um aviso para o usuário.
