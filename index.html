@@ -730,6 +730,25 @@
             </div>
         </div>
 
+        <div id="map-actions-wrapper">
+            <button id="undo-btn" class="map-action-btn" title="Desfazer (Ctrl+Z)" style="opacity: 0.3; pointer-events: none;">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button id="redo-btn" class="map-action-btn" title="Refazer (Ctrl+Y)" style="opacity: 0.3; pointer-events: none;">
+                <i class="fas fa-redo"></i>
+            </button>
+            <span class="separator-vertical"></span>
+            <button id="zoom-in-btn" class="map-action-btn" title="Aproximar">
+                <i class="fas fa-plus"></i>
+            </button>
+            <button id="zoom-out-btn" class="map-action-btn" title="Afastar">
+                <i class="fas fa-minus"></i>
+            </button>
+            <button id="center-map-btn" class="map-action-btn" title="Centralizar Mapa">
+                <i class="fas fa-crosshairs"></i>
+            </button>
+        </div>
+
         <svg id="mindmap-svg" width="100%" height="100%">
             <defs id="svg-defs">
                 <pattern id="grid-pattern" width="25" height="25" patternUnits="userSpaceOnUse">

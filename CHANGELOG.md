@@ -2,6 +2,12 @@
 
 Todas as mudanças notáveis no projeto InvMap serão documentadas neste arquivo.
 
+## [v2.2] - 06/05/2026
+### ✔Adicionado
+- **Redo/Undo (Ctrl+Z/Ctrl+Y):** Adicionado sistema de redo e undo para o mapa. Agora é possível desfazer e refazer alterações feitas nos nós e conexões.
+### 🖊 Alterado
+- **Sistema de Camadas Melhorado:** Agora ao invés de usar o DOM para ordenar os elementos, é usado z-index.
+
 ## [v2.1] - 02/04/2026
 ### ✔Adicionado
 - **Detecção de Ambiente:** Adicionado sistema de detecção de ambiente, agora é possível saber se o mapa está sendo usado em modo desktop ou web.

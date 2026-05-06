@@ -1,6 +1,18 @@
 document.addEventListener('DOMContentLoaded', () => {
     // DEBUG
-    let debugMode = false;
+    let debugMode = true;
+
+    // --- Constantes de Configuração ---
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 1.5;
+    const APP_VERSION = "2.2";
+
+    const isDesktopApp = /electron/i.test(navigator.userAgent);
+    if (isDesktopApp) {
+        console.log('Modo Desktop (Electron) ativado');
+    } else {
+        console.log('Modo Web ativado');
+    }
 
     // --- Seletores e Configuração Inicial ---
     const mapTitleInput = document.getElementById('map-title-input');
@@ -26,18 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const contextIconBtn = document.getElementById('context-icon-btn');
     const centerX = svg.clientWidth / 2;
     const centerY = svg.clientHeight / 2;
-
-    // --- Constantes de Configuração ---
-    const MIN_ZOOM = 0.25;
-    const MAX_ZOOM = 1.5;
-    const APP_VERSION = "2.1";
-
-    const isDesktopApp = /electron/i.test(navigator.userAgent);
-    if (isDesktopApp) {
-        console.log('Modo Desktop (Electron) ativado');
-    } else {
-        console.log('Modo Web ativado');
-    }
 
     // --- Detecção de Toque ---
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -278,8 +278,126 @@ document.addEventListener('DOMContentLoaded', () => {
         selectionBoxStart: null,
         dragStartRaw: { x: 0, y: 0 },
         hasMovedDuringDrag: false,
+        dragInitialState: null,
         justFinishedBoxSelection: false
     };
+
+    // ===================================================
+    // ||       SISTEMA DE HISTÓRICO (UNDO / REDO)      ||
+    // ===================================================
+    const MAX_HISTORY = 30;
+    let undoStack = [];
+    let redoStack = [];
+    let isRestoringHistory = false;
+
+    const undoBtn = document.getElementById('undo-btn');
+    const redoBtn = document.getElementById('redo-btn');
+
+    function updateHistoryButtons() {
+        if (undoBtn) {
+            undoBtn.style.opacity = undoStack.length > 0 ? '1' : '0.3';
+            undoBtn.style.pointerEvents = undoStack.length > 0 ? 'auto' : 'none';
+        }
+        if (redoBtn) {
+            redoBtn.style.opacity = redoStack.length > 0 ? '1' : '0.3';
+            redoBtn.style.pointerEvents = redoStack.length > 0 ? 'auto' : 'none';
+        }
+    }
+
+    window.saveHistoryState = function(specificState = null) {
+        if (isRestoringHistory) return;
+        
+        const stateSnapshot = specificState || {
+            nodes: JSON.parse(JSON.stringify(state.nodes)),
+            edges: JSON.parse(JSON.stringify(state.edges)),
+            visuals: JSON.parse(JSON.stringify(state.visuals))
+        };
+
+        undoStack.push(stateSnapshot);
+        if (undoStack.length > MAX_HISTORY) undoStack.shift();
+        
+        redoStack = [];
+        updateHistoryButtons();
+    };
+
+    window.undo = function() {
+        if (undoStack.length === 0) return;
+        isRestoringHistory = true;
+
+        redoStack.push({
+            nodes: JSON.parse(JSON.stringify(state.nodes)),
+            edges: JSON.parse(JSON.stringify(state.edges)),
+            visuals: JSON.parse(JSON.stringify(state.visuals))
+        });
+
+        const prevState = undoStack.pop();
+        state.nodes = prevState.nodes;
+        state.edges = prevState.edges;
+        state.visuals = prevState.visuals;
+
+        clearSelection(false);
+        render();
+        updateHistoryButtons();
+        setModifiedStatus(true);
+        isRestoringHistory = false;
+    };
+
+    window.redo = function() {
+        if (redoStack.length === 0) return;
+        isRestoringHistory = true;
+
+        undoStack.push({
+            nodes: JSON.parse(JSON.stringify(state.nodes)),
+            edges: JSON.parse(JSON.stringify(state.edges)),
+            visuals: JSON.parse(JSON.stringify(state.visuals))
+        });
+
+        const nextState = redoStack.pop();
+        state.nodes = nextState.nodes;
+        state.edges = nextState.edges;
+        state.visuals = nextState.visuals;
+
+        clearSelection(false);
+        render();
+        updateHistoryButtons();
+        setModifiedStatus(true);
+        isRestoringHistory = false;
+    };
+
+    if(undoBtn) undoBtn.addEventListener('click', undo);
+    if(redoBtn) redoBtn.addEventListener('click', redo);
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const centerMapBtn = document.getElementById('center-map-btn');
+
+    function performZoom(factor) {
+        const newZoom = state.zoom * factor;
+        const clampedZoom = Math.max(MIN_ZOOM, Math.min(newZoom, MAX_ZOOM));
+        if (clampedZoom === state.zoom) return;
+
+        const actualZoomFactor = clampedZoom / state.zoom;
+        const svgRect = svg.getBoundingClientRect();
+        
+        const pt = svg.createSVGPoint();
+        pt.x = svgRect.left + svgRect.width / 2;
+        pt.y = svgRect.top + svgRect.height / 2;
+        const centerPos = pt.matrixTransform(camera.getScreenCTM().inverse());
+        
+        state.cameraPos.x = centerPos.x + (state.cameraPos.x - centerPos.x) * actualZoomFactor;
+        state.cameraPos.y = centerPos.y + (state.cameraPos.y - centerPos.y) * actualZoomFactor;
+        state.zoom = clampedZoom;
+        updateCameraTransform();
+    }
+
+    if (zoomInBtn) zoomInBtn.addEventListener('click', () => performZoom(1.2));
+    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => performZoom(1 / 1.2));
+    if (centerMapBtn) {
+        centerMapBtn.addEventListener('click', () => {
+            state.cameraPos = { x: 0, y: 0 };
+            state.zoom = 1;
+            updateCameraTransform();
+        });
+    }
 
     // ===================================================
     // ||        SISTEMA DE CONFIGURAÇÕES (V2.0)        ||
@@ -809,6 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const finishEditing = (save) => {
             textarea.removeEventListener('input', onInput);
             if (save) {
+                saveHistoryState();
                 nodeData.label = textarea.value;
             }
             if (label) {
@@ -894,6 +1013,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const finishEditing = (save) => {
             textarea.removeEventListener('input', onInput);
             if (save) {
+                saveHistoryState();
                 nodeData.label = textarea.value;
                 setModifiedStatus(true);
             }
@@ -1346,9 +1466,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetNodeGroup = e.target.closest('.node-group');
         if (targetNodeGroup) {
             clearTimeout(hideTimeout);
-            if (targetNodeGroup.parentNode.lastChild !== targetNodeGroup) {
-                targetNodeGroup.parentNode.appendChild(targetNodeGroup);
-            }
             state.hoveredNodeId = targetNodeGroup.id;
             showNodeControls(state.nodes[state.hoveredNodeId]);
         }
@@ -1421,6 +1538,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (targetNode.y < sourceNode.y - 50) anchors = { source: 'top', target: 'bottom' };
                 if (targetNode.y > sourceNode.y + 50) anchors = { source: 'bottom', target: 'top' };
 
+                saveHistoryState();
                 state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
                 setModifiedStatus(true);
                 render();
@@ -1674,6 +1792,12 @@ document.addEventListener('DOMContentLoaded', () => {
             hideNodeControls();
             state.dragging = true;
             state.draggedNodeId = targetNodeGroup.id;
+            state.dragInitialState = {
+                nodes: JSON.parse(JSON.stringify(state.nodes)),
+                edges: JSON.parse(JSON.stringify(state.edges)),
+                visuals: JSON.parse(JSON.stringify(state.visuals))
+            };
+            state.hasMovedDuringDrag = false;
             const mousePos = getSVGPoint(e.clientX, e.clientY);
             const nodePos = state.nodes[state.draggedNodeId];
             state.dragOffset.x = mousePos.x - nodePos.x;
@@ -1952,6 +2076,10 @@ document.addEventListener('DOMContentLoaded', () => {
         state.dragging = false;
         state.draggedNodeId = null;
         state.panning = false;
+        if (wasDragging && state.hasMovedDuringDrag && state.dragInitialState) {
+            saveHistoryState(state.dragInitialState);
+        }
+        state.dragInitialState = null;
         if (state.hasMovedDuringDrag && state.selectedNodeId) {
             showNodeControls(state.nodes[state.selectedNodeId]);
         }
@@ -2080,6 +2208,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (targetNodeGroup || targetVisualPath) {
                 if (targetNodeGroup) {
                     state.draggedNodeId = targetNodeGroup.id;
+                    state.dragInitialState = {
+                        nodes: JSON.parse(JSON.stringify(state.nodes)),
+                        edges: JSON.parse(JSON.stringify(state.edges)),
+                        visuals: JSON.parse(JSON.stringify(state.visuals))
+                    };
+                    state.hasMovedDuringDrag = false;
                     const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
                     const nodePos = state.nodes[state.draggedNodeId];
                     state.dragOffset.x = touchPosSVG.x - nodePos.x;
@@ -2274,6 +2408,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Agora, executa a lógica de drag ou pan SOMENTE se o estado correspondente estiver ativo
             if (state.dragging && state.draggedNodeId) {
                 // Lógica de Drag
+                state.hasMovedDuringDrag = true;
                 const touchPosSVG = getSVGPoint(touch.clientX, touch.clientY);
                 const node = state.nodes[state.draggedNodeId];
                 node.x = touchPosSVG.x - state.dragOffset.x;
@@ -2346,6 +2481,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const wasPanning = state.panning;
         const wasPinching = initialPinchDistance !== null;
 
+        if (wasDragging && state.hasMovedDuringDrag && state.dragInitialState) {
+            saveHistoryState(state.dragInitialState);
+        }
+        state.dragInitialState = null;
+
         state.dragging = false;
         state.draggedNodeId = null;
         state.panning = false;
@@ -2374,6 +2514,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (targetNode.y < sourceNode.y - 50) { anchors = { source: 'top', target: 'bottom' }; }
                             if (targetNode.y > sourceNode.y + 50) { anchors = { source: 'bottom', target: 'top' }; }
 
+                            saveHistoryState();
                             state.edges[newEdgeId] = { id: newEdgeId, source: sourceNodeId, target: targetNodeId, sourceAnchor: anchors.source, targetAnchor: anchors.target };
                             setModifiedStatus(true);
                             render();
@@ -2478,6 +2619,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addImageInput = document.getElementById('add-image-input');
 
     addRootNodeBtn.addEventListener('click', () => {
+        saveHistoryState();
         const screenCenterX = svg.clientWidth / 2;
         const screenCenterY = svg.clientHeight / 2;
         const centerSVGPoint = getSVGPoint(screenCenterX, screenCenterY);
@@ -2497,6 +2639,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const parentId = state.controlsTargetNodeId; 
             const parentNode = state.nodes[parentId];
             if (!parentNode) return;
+            saveHistoryState();
             const newNodeId = 'node_' + Date.now() + Math.random().toString(36).substr(2, 5);
             const newEdgeId = 'edge_' + Date.now() + Math.random().toString(36).substr(2, 5);
             let newNodePos = { x: parentNode.x, y: parentNode.y };
@@ -2538,6 +2681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     contextLinkBtn.addEventListener('click', startLinkingMode);
 
     function deleteSelectedItem() {
+        saveHistoryState();
         const idsToDelete = new Set(state.selectedElements);
         if (state.selectedNodeId) idsToDelete.add(state.selectedNodeId);
         if (state.selectedVisualId) idsToDelete.add(state.selectedVisualId);
@@ -3236,6 +3380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     addEntityNodeBtn.addEventListener('click', () => {
+        saveHistoryState();
         entityModal.style.display = 'flex';
     });
 
@@ -3281,6 +3426,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     saveEntityEditBtn.addEventListener('click', () => {
         if (!state.editingNodeId) return;
+        saveHistoryState();
         const node = state.nodes[state.editingNodeId];
 
         if (node.entityType === 'person') {
@@ -3430,6 +3576,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'd': // Duplicar
                     e.preventDefault();
                     duplicateSelection();
+                    break;
+                case 'z': // Desfazer
+                    e.preventDefault();
+                    if (e.shiftKey) redo(); else undo();
+                    break;
+                case 'y': // Refazer
+                    e.preventDefault();
+                    redo();
                     break;
             }
         }
@@ -3664,6 +3818,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Lógica de Aplicação de Cor ---
 
     function applyColorToSelection(color) {
+        saveHistoryState();
         let itemChanged = false;
 
         if (state.selectedNodeId) {
@@ -3708,6 +3863,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Lógica de ícones ---
 
+    sizeSlider.addEventListener('change', () => { saveHistoryState(); });
     sizeSlider.addEventListener('input', (e) => {
         const percent = parseInt(e.target.value, 10);
         const scale = percent / 100;
@@ -3748,6 +3904,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateTextStyle(prop, value) {
         if (state.selectedNodeId) {
+            saveHistoryState();
             const node = state.nodes[state.selectedNodeId];
             node[prop] = value;
             setModifiedStatus(true);
@@ -4149,6 +4306,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function pasteSelection(silent = false) {
         if (!state.clipboard) return;
 
+        saveHistoryState();
         const screenCenterSVG = getSVGPoint(svg.clientWidth / 2, svg.clientHeight / 2);
         const bounds = getClipboardBounds(state.clipboard);
         
@@ -4228,6 +4386,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function duplicateSelection() {
         const success = copySelection(true); 
         if (success) {
+            saveHistoryState();
             pasteSelection(true);
             showNotification(`${state.selectedElements.size} Itens duplicados.`, 'success');
         }
@@ -4250,47 +4409,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Sistema de Layers (Z-Index) ---
 
+    function reorderObjectKey(obj, key, direction) {
+        const keys = Object.keys(obj);
+        const index = keys.indexOf(key);
+        if (index === -1) return null;
+        
+        if (direction === 'up' && index < keys.length - 1) {
+            [keys[index], keys[index + 1]] = [keys[index + 1], keys[index]];
+        } else if (direction === 'down' && index > 0) {
+            [keys[index], keys[index - 1]] = [keys[index - 1], keys[index]];
+        } else {
+            return null;
+        }
+        
+        const newObj = {};
+        for (const k of keys) {
+            newObj[k] = obj[k];
+        }
+        return newObj;
+    }
+
     function moveLayer(direction) {
         let elementId = state.selectedNodeId || state.selectedVisualId || state.selectedEdgeId;
         
         if (!elementId && state.selectedElements.size > 0) {
-            // TODO: Implementar seleção múltipla
             showNotification('Selecione um único item para mover a camada.', 'warning');
             return;
         }
 
         if (!elementId) return;
 
-        let element = document.getElementById(elementId);
-        
-        if (state.selectedEdgeId) {
-            element = element.closest('.edge-group');
-        }
+        let targetObj = null;
+        if (state.selectedNodeId) targetObj = 'nodes';
+        else if (state.selectedVisualId) targetObj = 'visuals';
+        else if (state.selectedEdgeId) targetObj = 'edges';
 
-        if (!element || !element.parentNode) return;
+        if (!targetObj) return;
 
-        const parent = element.parentNode;
+        const newOrder = reorderObjectKey(state[targetObj], elementId, direction);
 
-        if (direction === 'up') {
-            const nextSibling = element.nextElementSibling;
-            if (nextSibling) {
-                parent.insertBefore(element, nextSibling.nextElementSibling);
-                setModifiedStatus(true);
-            } else {
-                showNotification('O item já está no topo da sua camada.', 'info');
+        if (newOrder) {
+            saveHistoryState();
+            state[targetObj] = newOrder;
+            setModifiedStatus(true);
+            render();
+            if (state.selectedNodeId && state.nodes[state.selectedNodeId]?.type === 'shape') {
+                drawShapeHandles(state.selectedNodeId);
             }
-        } else if (direction === 'down') {
-            const prevSibling = element.previousElementSibling;
-            if (prevSibling) {
-                parent.insertBefore(element, prevSibling);
-                setModifiedStatus(true);
-            } else {
-                showNotification('O item já está no fundo da sua camada.', 'info');
-            }
-        }
-        
-        if (state.selectedNodeId && state.nodes[state.selectedNodeId]?.type === 'shape') {
-             drawShapeHandles(state.selectedNodeId);
+        } else {
+            showNotification(direction === 'up' ? 'O item já está no topo da sua camada.' : 'O item já está no fundo da sua camada.', 'info');
         }
     }
 
